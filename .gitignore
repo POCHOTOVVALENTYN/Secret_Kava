@@ -9,3 +9,8 @@ __pycache__/
 .ruff_cache/
 *.pyc
 *.log
+
+# Local scripts and test folders
+scratch/
+Key/
+test_*.py
