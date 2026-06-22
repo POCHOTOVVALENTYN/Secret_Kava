@@ -199,3 +199,24 @@ class WayForPayPaymentClient:
             "time": timestamp,
             "signature": signature
         }
+
+    @staticmethod
+    def get_decline_reason(reason_code: int | str | None) -> str:
+        """Translates WayForPay decline reason codes to friendly Ukrainian messages."""
+        if not reason_code:
+            return "невідома помилка платежу"
+            
+        code = str(reason_code)
+        reasons = {
+            "1101": "недостатньо коштів на рахунку",
+            "1105": "неправильний CVV2/CVC2 код",
+            "1107": "термін дії картки закінчився",
+            "1108": "обмеження вашого банку на інтернет-платежі або перевищено ліміт",
+            "1109": "транзакцію відхилено банком-емітентом",
+            "1124": "невірне підтвердження 3D-Secure",
+            "1144": "перевищено ліміт кількості операцій",
+            "1145": "перевищено ліміт суми для інтернет-оплат",
+            "5100": "відхилено платіжною системою (загальна помилка)",
+        }
+        return reasons.get(code, f"відхилено банком (код: {code})")
+

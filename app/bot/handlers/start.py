@@ -190,7 +190,7 @@ async def process_about_callback(call: CallbackQuery) -> None:
             logger.warning("failed_to_send_via_cached_file_id_falling_back", error=str(e))
 
     # Path to assets image
-    asset_path = os.path.join(os.path.dirname(__file__), "..", "assets", "secret_cava_interior.png")
+    asset_path = os.path.join(os.path.dirname(__file__), "..", "assets", "secret_cava_interior.jpg")
     
     if os.path.exists(asset_path):
         photo = FSInputFile(asset_path)

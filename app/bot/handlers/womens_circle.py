@@ -316,7 +316,7 @@ async def process_phone(
         f"👤 Учасниця: *{data['client_name']}*\n"
         f"📞 Телефон: *{phone}*\n\n"
         f"💵 Вартість участі: *400.00 UAH*\n"
-        f"💳 Передплата: *100.00 UAH* (решта 300.00 UAH сплачується при зустрічі)\n\n"
+        f"💳 Передплата: *1.00 UAH* (тест, решта 399.00 UAH сплачується при зустрічі)\n\n"
         f"⚠️ *Скасування та повернення передплати можливе не пізніше ніж за 24 години до початку заходу.*"
     )
     
@@ -326,13 +326,13 @@ async def process_phone(
             message_id=main_msg_id,
             text=summary_text,
             parse_mode="Markdown",
-            reply_markup=get_payment_keyboard(invoice_url, amount=100.0)
+            reply_markup=get_payment_keyboard(invoice_url, amount=1.0)
         )
     except Exception:
         await message.answer(
             text=summary_text,
             parse_mode="Markdown",
-            reply_markup=get_payment_keyboard(invoice_url, amount=100.0)
+            reply_markup=get_payment_keyboard(invoice_url, amount=1.0)
         )
         
     if phone_prompt_msg_id:

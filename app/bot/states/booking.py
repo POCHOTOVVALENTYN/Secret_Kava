@@ -49,7 +49,9 @@ class HostEventFSM(StatesGroup):
     """Finite State Machine states for hosting an event registration."""
     EnterTitle = State()
     EnterHost = State()
-    EnterDate = State()
+    SelectDate = State()
+    SelectSlot = State()
+    SelectDuration = State()
     EnterLimit = State()
     EnterPrice = State()
     EnterName = State()

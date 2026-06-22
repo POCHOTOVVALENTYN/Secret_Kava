@@ -12,7 +12,7 @@ from app.bot.middlewares.database import DatabaseSessionMiddleware
 from app.bot.middlewares.throttling import ThrottlingMiddleware
 from app.bot.middlewares.auth import AuthRegistrationMiddleware
 from app.bot.middlewares.services import ServicesMiddleware
-from app.bot.handlers import start, booking, rental, events, mac_cards, reviews, admin as admin_handler, womens_circle, host_event
+from app.bot.handlers import start, booking, rental, events, mac_cards, reviews, admin as admin_handler, womens_circle, host_event, payment_retry
 from app.scheduler.jobs import SchedulerService
 from app.api.webhooks.payments import router as payment_webhook_router
 from app.admin.routes.psychologists import router as admin_psych_router
@@ -50,6 +50,7 @@ async def app_lifespan(app: FastAPI):
     dp.include_router(womens_circle.router)
     dp.include_router(admin_handler.router)
     dp.include_router(host_event.router)
+    dp.include_router(payment_retry.router)
     
     # Configure Telegram webhook mapping
     if settings.TELEGRAM_WEBHOOK_URL:

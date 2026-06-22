@@ -670,7 +670,7 @@ async def process_rental_phone(
     except Exception:
         pass
     
-    prepay_amount = 200.0 if data["room_id"] == 2 else 50.0
+    prepay_amount = 1.0
     summary_text = (
         f"💳 *Розрахунок вартості оренди кабінету:*\n\n"
         f"🏢 Кабінет: *{data.get('room_name', 'Головний кабінет')}*\n"
@@ -680,7 +680,7 @@ async def process_rental_phone(
         f"📞 Телефон: *{phone}*\n"
         f"💵 Загальна вартість: *{data['total_price']:.2f} UAH* "
         f"{'(Враховано знижку 10%!)' if data['hours'] >= 3 else ''}\n"
-        f"💳 Передплата: *{prepay_amount:.2f} UAH* (решта {data['total_price'] - prepay_amount:.2f} UAH сплачується при зустрічі)\n\n"
+        f"💳 Передплата: *1.00 UAH* (тест, решта {data['total_price'] - prepay_amount:.2f} UAH сплачується при зустрічі)\n\n"
         f"⚠️ _Зарезервований час буде заблоковано в сітці після успішного внесення передплати._"
     )
     

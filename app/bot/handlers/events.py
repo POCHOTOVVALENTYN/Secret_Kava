@@ -186,21 +186,32 @@ async def process_event_booking_start(
         await call.answer("❌ Захід не знайдено!", show_alert=True)
         return
         
-    if event["seats_left"] <= 0:
+    user_id = call.from_user.id
+    lock_key = f"lock:event_seat:{event_id}:{user_id}"
+    has_lock = await booking_service.redis.get(lock_key)
+    
+    if not has_lock and event["seats_left"] <= 0:
         await call.answer("⚠️ Вибачте, на цей захід більше немає вільних місць!", show_alert=True)
         return
         
+    await booking_service.redis.set(lock_key, "1", ex=900)
+        
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+        
+    sent_msg = await call.message.answer(
+        text="👤 *Будь ласка, введіть Ваше Ім'я для квитка:*",
+        parse_mode="Markdown"
+    )
+    
     await state.update_data(
         event_id=event_id,
         event_name=event["title"],
         event_price=event["price"],
         event_date=event["date"],
-        prompt_message_id=call.message.message_id
-    )
-    
-    await call.message.edit_text(
-        text="👤 *Будь ласка, введіть Ваше Ім'я для квитка:*",
-        parse_mode="Markdown"
+        prompt_message_id=sent_msg.message_id
     )
     await state.set_state(EventFSM.EnterName)
     await call.answer()
@@ -284,36 +295,56 @@ async def process_event_client_phone(
 
     await state.update_data(event_client_phone=phone)
     data = await state.get_data()
+    event_price = float(data.get("event_price", 0.0))
     
-    # Generate dynamic invoice via booking_service
+    from aiogram.types import ReplyKeyboardRemove
+    # Remove reply keyboard
+    dummy = await message.answer("⏳ Обробка...", reply_markup=ReplyKeyboardRemove())
+    try:
+        await dummy.delete()
+    except Exception:
+        pass
+
+    if event_price == 0.0:
+        if prompt_message_id:
+            try:
+                await message.bot.delete_message(chat_id=message.chat.id, message_id=prompt_message_id)
+            except Exception:
+                pass
+                
+        await booking_service.confirm_free_event_booking(
+            user_id=current_user.id,
+            event_id=int(data.get("event_id", 1)),
+            event_name=data.get("event_name", ""),
+            date_str=data.get("event_date", ""),
+            client_name=data["event_client_name"],
+            client_phone=phone,
+            telegram_id=message.from_user.id
+        )
+        await state.clear()
+        return
+        
+    # Generate dynamic invoice via booking_service for paid events
     invoice_url, invoice_id = await booking_service.create_event_invoice(
         user_id=current_user.id,
         event_id=int(data.get("event_id", 1)),
         event_name=data.get("event_name", "Воркшоп «Справитися зі стресом»"),
         date_str=data.get("event_date", "2026-05-30 18:00"),
-        price=float(data.get("event_price", 400.0)),
+        price=event_price,
         client_name=data["event_client_name"],
         client_phone=phone
     )
     
     from app.bot.keyboards.inline import get_payment_keyboard
-    from aiogram.types import ReplyKeyboardRemove
     
-    # Remove reply keyboard
-    dummy = await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
-    try:
-        await dummy.delete()
-    except Exception:
-        pass
-        
     final_msg = await message.answer(
         text=(
             f"🎯 *Підтвердження бронювання місця на захід:*\n\n"
             f"🎟️ {data.get('event_name')}\n"
             f"👤 Ім'я: {data['event_client_name']}\n"
             f"📞 Телефон: {phone}\n"
-            f"💵 Загальна вартість: *{float(data.get('event_price', 400.0)):.2f} UAH*\n"
-            f"💳 Передплата: *50.00 UAH* (решта {float(data.get('event_price', 400.0)) - 50.00:.2f} UAH сплачується при зустрічі)\n\n"
+            f"💵 Загальна вартість: *{event_price:.2f} UAH*\n"
+            f"💳 Передплата: *1.00 UAH* (тест, решта {event_price - 1.00:.2f} UAH сплачується при зустрічі)\n\n"
             f"⚠️ *Сплатіть передплату для резервування квитка:*"
         ),
         parse_mode="Markdown",
@@ -331,8 +362,18 @@ async def process_event_client_phone(
     await state.set_state(EventFSM.ConfirmAndPay)
 
 @router.callback_query(F.data == "booking:cancel", EventFSM.ConfirmAndPay)
-async def cancel_event_checkout(call: CallbackQuery, state: FSMContext) -> None:
+async def cancel_event_checkout(
+    call: CallbackQuery, 
+    state: FSMContext,
+    booking_service: BookingService
+) -> None:
     """Gracefully handles event checkout abandonment and FSM clearance."""
+    data = await state.get_data()
+    event_id = data.get("event_id")
+    if event_id:
+        lock_key = f"lock:event_seat:{event_id}:{call.from_user.id}"
+        await booking_service.redis.delete(lock_key)
+        
     # Reset FSM state
     await state.clear()
     

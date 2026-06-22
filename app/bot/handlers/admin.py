@@ -60,6 +60,7 @@ SHEET_EVENTS_REG   = "Заявки організаторів на заходи 
 SHEET_BOOK_CONSULT = "Бронювання до спеціаліста"
 SHEET_BOOK_ROOMS   = "Бронювання кабінету"
 SHEET_BOOK_EVENTS  = "Бронювання на заходи (Афіши)"
+SHEET_WOMENS_CIRCLE = "Жіноче коло"
 
 # Column letters for price editing (1-indexed spreadsheet row = data_row_idx + 2)
 COL_SPEC_ONLINE  = "E"   # Ціна_Онлайн
@@ -120,30 +121,19 @@ def _trunc(s: str, n: int = 14) -> str:
 
 def _kb_main() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="💰 Ціни та тарифи",    callback_data="adm:prices"))
-    b.row(InlineKeyboardButton(text="📋 Реєстри",            callback_data="adm:regs"))
     b.row(InlineKeyboardButton(text="📝 Модерація відгуків", callback_data="adm:reviews"))
-    b.row(InlineKeyboardButton(text="📅 Вільні слоти",        callback_data="adm:slots_menu"))
+    b.row(InlineKeyboardButton(text="📅 Бронювання",          callback_data="adm:bookings"))
     b.row(InlineKeyboardButton(text="🏠 Головне меню",       callback_data="menu:main"))
     return b.as_markup()
 
-def _kb_prices() -> InlineKeyboardMarkup:
+def _kb_bookings() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="👤 Ціни консультацій", callback_data="adm:p:spec"))
-    b.row(InlineKeyboardButton(text="🏢 Ціни кабінетів",    callback_data="adm:p:room"))
-    b.row(InlineKeyboardButton(text="🎭 Ціни заходів",       callback_data="adm:p:event"))
-    b.row(InlineKeyboardButton(text="⬅️ Адмін меню",        callback_data="adm:main"))
-    return b.as_markup()
-
-def _kb_registries() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    month = _current_month_label()
-    b.row(InlineKeyboardButton(text=f"💻 Консультації онлайн ({month})",  callback_data="adm:r:con_on"))
-    b.row(InlineKeyboardButton(text=f"🛋 Консультації офлайн ({month})",  callback_data="adm:r:con_off"))
-    b.row(InlineKeyboardButton(text=f"🏠 Бронювання кабінетів ({month})", callback_data="adm:r:rooms"))
-    b.row(InlineKeyboardButton(text="🎭 Реєстр заходів (актуальні)",       callback_data="adm:r:ev_reg"))
-    b.row(InlineKeyboardButton(text=f"🎟 Реєстр Афіш ({month})",           callback_data="adm:r:afisha"))
-    b.row(InlineKeyboardButton(text="⬅️ Адмін меню",                       callback_data="adm:main"))
+    b.row(InlineKeyboardButton(text="👤 Бронювання спеціаліст", callback_data="adm:b:consult"))
+    b.row(InlineKeyboardButton(text="🏢 Бронювання кабінет", callback_data="adm:b:room"))
+    b.row(InlineKeyboardButton(text="🎭 Бронювання організаторів зал", callback_data="adm:b:host_event"))
+    b.row(InlineKeyboardButton(text="🎟 Бронювання зал клієнти", callback_data="adm:b:client_event"))
+    b.row(InlineKeyboardButton(text="🍷 Бронювання жіноче коло", callback_data="adm:b:womens_circle"))
+    b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="adm:main"))
     return b.as_markup()
 
 def _kb_item_list(items: list[tuple[int, str]], prefix: str, back_cb: str) -> InlineKeyboardMarkup:
@@ -192,7 +182,7 @@ def _kb_registry_nav(reg_key: str, page: int, total: int) -> InlineKeyboardMarku
     if page < total - 1:
         nav.append(InlineKeyboardButton(text="▶️", callback_data=f"adm:rp:{reg_key}:{page+1}"))
     b.row(*nav)
-    b.row(InlineKeyboardButton(text="⬅️ До реєстрів", callback_data="adm:regs"))
+    b.row(InlineKeyboardButton(text="⬅️ До бронювань", callback_data="adm:bookings"))
     return b.as_markup()
 
 # ─── Entry / Main Menu ────────────────────────────────────────────────────────
@@ -573,20 +563,99 @@ async def admin_save_price(message: Message, state: FSMContext, sheets=None) -> 
             reply_markup=_kb_cancel_price(back_cb)
         )
 
-# ─── Registries Menu ──────────────────────────────────────────────────────────
+# ─── Bookings Menu & Registries ───────────────────────────────────────────────
 
-@router.callback_query(F.data == "adm:regs")
-async def admin_regs_menu(call: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data == "adm:bookings")
+async def admin_bookings_menu(call: CallbackQuery, state: FSMContext) -> None:
     if not _is_admin(call.from_user.id):
-        await call.answer("🚫", show_alert=True)
+        await call.answer("🚫 Доступ заборонено", show_alert=True)
         return
     await state.set_state(AdminMenuFSM.RegistriesMenu)
     await call.message.edit_text(
-        f"📋 *Реєстри*\n_Дані за {_current_month_label()}_\n\nОберіть розділ:",
-        parse_mode="Markdown",
-        reply_markup=_kb_registries()
+        "📅 *Бронювання*\n\nОберіть категорію бронювань:",
+        parse_mode="Markdown", reply_markup=_kb_bookings()
     )
     await call.answer()
+
+@router.callback_query(F.data == "adm:b:consult")
+async def reg_bookings_consult(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
+    if not _is_admin(call.from_user.id):
+        await call.answer("🚫", show_alert=True)
+        return
+    await call.answer("⏳")
+    await _show_registry(
+        call, state, sheets,
+        reg_key="b_consult",
+        title="Бронювання спеціаліст",
+        sheet_name=SHEET_BOOK_CONSULT,
+        col_indices=[1, 2, 3, 5, 6, 7],
+        col_headers=["Клієнт", "Телефон", "Спеціаліст", "Дата", "Час", "Статус"],
+        filter_fn=lambda r: True,
+    )
+
+@router.callback_query(F.data == "adm:b:room")
+async def reg_bookings_room(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
+    if not _is_admin(call.from_user.id):
+        await call.answer("🚫", show_alert=True)
+        return
+    await call.answer("⏳")
+    await _show_registry(
+        call, state, sheets,
+        reg_key="b_room",
+        title="Бронювання кабінет",
+        sheet_name=SHEET_BOOK_ROOMS,
+        col_indices=[1, 2, 3, 4, 5, 6],
+        col_headers=["Клієнт", "Телефон", "Кабінет", "Дата", "Час", "Статус"],
+        filter_fn=lambda r: True,
+    )
+
+@router.callback_query(F.data == "adm:b:host_event")
+async def reg_bookings_host_event(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
+    if not _is_admin(call.from_user.id):
+        await call.answer("🚫", show_alert=True)
+        return
+    await call.answer("⏳")
+    await _show_registry(
+        call, state, sheets,
+        reg_key="b_host_event",
+        title="Бронювання організаторів зал",
+        sheet_name=SHEET_EVENTS_REG,
+        col_indices=[1, 2, 3, 4, 5, 6],
+        col_headers=["Назва", "Ведучий", "Дата", "Ліміт", "Ціна", "Статус"],
+        filter_fn=lambda r: True,
+    )
+
+@router.callback_query(F.data == "adm:b:client_event")
+async def reg_bookings_client_event(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
+    if not _is_admin(call.from_user.id):
+        await call.answer("🚫", show_alert=True)
+        return
+    await call.answer("⏳")
+    await _show_registry(
+        call, state, sheets,
+        reg_key="b_client_event",
+        title="Бронювання зал клієнти",
+        sheet_name=SHEET_BOOK_EVENTS,
+        col_indices=[1, 2, 3, 4, 6],
+        col_headers=["Клієнт", "Телефон", "Захід", "Дата", "Статус"],
+        filter_fn=lambda r: True,
+    )
+
+@router.callback_query(F.data == "adm:b:womens_circle")
+async def reg_bookings_womens_circle(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
+    if not _is_admin(call.from_user.id):
+        await call.answer("🚫", show_alert=True)
+        return
+    await call.answer("⏳")
+    await _show_registry(
+        call, state, sheets,
+        reg_key="b_womens_circle",
+        title="Бронювання жіноче коло",
+        sheet_name=SHEET_WOMENS_CIRCLE,
+        col_indices=[1, 2, 3, 4, 5, 6],
+        col_headers=["Клієнт", "Телефон", "Дата", "Оплата", "Передплата", "Залишок"],
+        filter_fn=lambda r: True,
+    )
 
 # ─── Generic Registry Loader ──────────────────────────────────────────────────
 
@@ -602,7 +671,7 @@ async def _show_registry(
     filter_fn,                    # lambda row -> bool
     page: int = 0,
 ) -> None:
-    """Generic registry viewer with month filter and pagination."""
+    """Generic registry viewer with pagination."""
     await call.message.edit_text(f"⏳ _Завантаження {title}..._", parse_mode="Markdown")
 
     rows = await _load(sheets, sheet_name)
@@ -622,9 +691,9 @@ async def _show_registry(
                             adm_reg_filter="")
     await state.set_state(AdminMenuFSM.ViewingRegistry)
 
-    lines = [f"📋 *{title}*", f"_Місяць: {_current_month_label()} • {len(filtered)} записів_\n"]
+    lines = [f"📋 *{title}*", f"_Всього: {len(filtered)} записів_\n"]
     if not page_rows:
-        lines.append("_(за цей місяць записів немає)_")
+        lines.append("_(записів немає)_")
     else:
         for row in page_rows:
             cells = [_trunc(_safe(row, ci)) for ci in col_indices]
@@ -656,9 +725,9 @@ async def admin_registry_page(call: CallbackQuery, state: FSMContext) -> None:
     start = page * ROWS_PER_PAGE
     page_rows = filtered[start: start + ROWS_PER_PAGE]
 
-    lines = [f"📋 *{title}*", f"_Місяць: {_current_month_label()} • {len(filtered)} записів_\n"]
+    lines = [f"📋 *{title}*", f"_Всього: {len(filtered)} записів_\n"]
     if not page_rows:
-        lines.append("_(за цей місяць записів немає)_")
+        lines.append("_(записів немає)_")
     else:
         for row in page_rows:
             cells = [_trunc(_safe(row, ci)) for ci in col_indices]
@@ -673,117 +742,6 @@ async def admin_registry_page(call: CallbackQuery, state: FSMContext) -> None:
     except Exception:
         pass
     await call.answer()
-
-# ─── Individual Registry Handlers ─────────────────────────────────────────────
-
-# Бронювання до спеціаліста columns:
-# 0=ID  1=Клієнт  2=Телефон  3=Спеціаліст  4=Формат  5=Дата  6=Час  7=Статус оплати  8=Сума
-_CONSULT_COLS = [1, 2, 3, 5, 6, 7]
-_CONSULT_HEADS = ["Клієнт", "Телефон", "Спеціаліст", "Дата", "Час", "Статус"]
-
-@router.callback_query(F.data == "adm:r:con_on")
-async def reg_consult_online(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
-    if not _is_admin(call.from_user.id):
-        await call.answer("🚫", show_alert=True)
-        return
-    await call.answer("⏳")
-    await _show_registry(
-        call, state, sheets,
-        reg_key="con_on",
-        title="Консультації онлайн",
-        sheet_name=SHEET_BOOK_CONSULT,
-        col_indices=_CONSULT_COLS,
-        col_headers=_CONSULT_HEADS,
-        filter_fn=lambda r: _safe(r, 4).lower() == "онлайн" and _is_current_month(_safe(r, 5)),
-    )
-
-@router.callback_query(F.data == "adm:r:con_off")
-async def reg_consult_offline(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
-    if not _is_admin(call.from_user.id):
-        await call.answer("🚫", show_alert=True)
-        return
-    await call.answer("⏳")
-    await _show_registry(
-        call, state, sheets,
-        reg_key="con_off",
-        title="Консультації офлайн",
-        sheet_name=SHEET_BOOK_CONSULT,
-        col_indices=_CONSULT_COLS,
-        col_headers=_CONSULT_HEADS,
-        filter_fn=lambda r: _safe(r, 4).lower() == "офлайн" and _is_current_month(_safe(r, 5)),
-    )
-
-# Бронювання кабінету columns:
-# 0=ID  1=Клієнт  2=Телефон  3=Кабінет  4=Дата  5=Час  6=Статус оплати  7=Сума
-@router.callback_query(F.data == "adm:r:rooms")
-async def reg_rooms(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
-    if not _is_admin(call.from_user.id):
-        await call.answer("🚫", show_alert=True)
-        return
-    await call.answer("⏳")
-    await _show_registry(
-        call, state, sheets,
-        reg_key="rooms",
-        title="Бронювання кабінетів",
-        sheet_name=SHEET_BOOK_ROOMS,
-        col_indices=[1, 2, 3, 4, 5, 6],
-        col_headers=["Клієнт", "Телефон", "Кабінет", "Дата", "Час", "Статус"],
-        filter_fn=lambda r: _is_current_month(_safe(r, 4)),
-    )
-
-# Реєстр Заходів (Афіши) — show only active events
-# 0=ID  1=Назва  2=Ведучий  3=Дата  4=Ліміт місць  5=Ціна  6=Місяць  7=Статус
-@router.callback_query(F.data == "adm:r:ev_reg")
-async def reg_events(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
-    if not _is_admin(call.from_user.id):
-        await call.answer("🚫", show_alert=True)
-        return
-    await call.answer("⏳")
-
-    rows = await _load(sheets, SHEET_EVENTS_REG)
-    data_rows = rows[1:] if len(rows) > 1 else []
-    filtered = [r for r in data_rows if _safe(r, 7).lower() in ("актуальний", "анонс")]
-    total = max(1, -(-len(filtered) // ROWS_PER_PAGE))
-
-    await state.update_data(adm_reg_key="ev_reg", adm_reg_rows=filtered,
-                            adm_reg_title="Реєстр заходів", adm_reg_cols=[1, 3, 4, 5, 7])
-    await state.set_state(AdminMenuFSM.ViewingRegistry)
-
-    lines = [f"🎭 *Реєстр заходів*", f"_Актуальні та анонси • {len(filtered)} заходів_\n"]
-    if not filtered:
-        lines.append("_(актуальних заходів немає)_")
-    else:
-        for row in filtered[:ROWS_PER_PAGE]:
-            name   = _trunc(_safe(row, 1), 18)
-            date   = _safe(row, 3)
-            limit  = _safe(row, 4)
-            price  = _safe(row, 5)
-            status = _safe(row, 7)
-            lines.append(f"• *{name}*\n  📅 {date} | 👥 Ліміт: {limit} | 💵 {price} грн | {status}")
-
-    await call.message.edit_text(
-        "\n".join(lines),
-        parse_mode="Markdown",
-        reply_markup=_kb_registry_nav("ev_reg", 0, total)
-    )
-
-# Бронювання на заходи (Афіши) columns:
-# 0=ID  1=Клієнт  2=Телефон  3=Захід  4=Дата  5=Час  6=Статус оплати  7=Сума
-@router.callback_query(F.data == "adm:r:afisha")
-async def reg_afisha(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
-    if not _is_admin(call.from_user.id):
-        await call.answer("🚫", show_alert=True)
-        return
-    await call.answer("⏳")
-    await _show_registry(
-        call, state, sheets,
-        reg_key="afisha",
-        title="Реєстр Афіш",
-        sheet_name=SHEET_BOOK_EVENTS,
-        col_indices=[1, 2, 3, 4, 6],
-        col_headers=["Клієнт", "Телефон", "Захід", "Дата", "Статус"],
-        filter_fn=lambda r: _is_current_month(_safe(r, 4)),
-    )
 
 # ─── Shared Loader ────────────────────────────────────────────────────────────
 
@@ -1067,7 +1025,7 @@ async def _update_sheets_slot_status(sheets, spec_name: str, date_str: str, time
     if not sheets:
         return
     try:
-        rows = await sheets.read_sheet("Вільні слоти")
+        rows = await sheets.read_sheet("Вільні слоти консультації")
         found = False
         
         # Convert date format if needed (Google Sheets stores as DD.MM.YYYY)
@@ -1084,14 +1042,14 @@ async def _update_sheets_slot_status(sheets, spec_name: str, date_str: str, time
             date_matches = (row_date == date_str or row_date == date_dmy)
             if date_matches and row_spec.lower() == spec_name.strip().lower() and row_time == time_str:
                 # Update Status (column D -> index 3, column 4 is "D")
-                await sheets.update_cell("Вільні слоти", idx + 1, "D", new_status)
+                await sheets.update_cell("Вільні слоти консультації", idx + 1, "D", new_status)
                 logger.info("sheets_slot_status_updated", row=idx + 1, status=new_status)
                 found = True
                 break
                 
         if not found and new_status == "Вільний":
             row_data = [date_dmy, spec_name, time_str, new_status]
-            await sheets.append_row("Вільні слоти", row_data)
+            await sheets.append_row("Вільні слоти консультації", row_data)
             logger.info("sheets_slot_appended", spec=spec_name, date=date_dmy, time=time_str)
     except Exception as e:
         logger.error("failed_to_update_sheets_slot_status", error=str(e))

@@ -60,7 +60,7 @@ def get_slots_keyboard(slots: list[str]) -> InlineKeyboardMarkup:
     
     return builder.as_markup()
 
-def get_payment_keyboard(invoice_url: str, amount: float = 50.0) -> InlineKeyboardMarkup:
+def get_payment_keyboard(invoice_url: str, amount: float = 1.0) -> InlineKeyboardMarkup:
     """Provides dynamic checkout URL triggers and cancellation flow."""
     builder = InlineKeyboardBuilder()
     
@@ -83,3 +83,15 @@ def get_nps_keyboard(booking_id: int) -> InlineKeyboardMarkup:
         
     builder.adjust(5) # Splits 10 buttons nicely across 2 rows of 5
     return builder.as_markup()
+
+def get_payment_retry_direct_keyboard(payment_id: int, invoice_url: str, amount: float = 1.0) -> InlineKeyboardMarkup:
+    """Provides a payment button pointing to a retry invoice URL and a cancel button referencing the payment ID."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text=f"💳 Сплатити передплату {int(amount)} грн (WayForPay)", url=invoice_url)
+    )
+    builder.row(
+        InlineKeyboardButton(text="❌ Скасувати бронювання", callback_data=f"pay_cancel:{payment_id}")
+    )
+    return builder.as_markup()
+

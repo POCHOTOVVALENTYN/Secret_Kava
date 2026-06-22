@@ -93,7 +93,7 @@ class AuthRegistrationMiddleware(BaseMiddleware):
                     experience_years=10,
                     specializations="Психолог",
                     price_online=1000.0,
-                    price_offline=1200.0,
+                    price_offline=1000.0,
                     is_active=True
                 )
                 db_session.add(default_psych)

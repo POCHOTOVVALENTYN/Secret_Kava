@@ -134,7 +134,12 @@ def _generate_client_calendar(psychologist_id: int, active_dates: set[str]) -> I
 
 
 @router.callback_query(F.data.startswith("format:"), BookingFSM.SelectFormat)
-async def process_format_selection(call: CallbackQuery, state: FSMContext, db_session: AsyncSession) -> None:
+async def process_format_selection(
+    call: CallbackQuery, 
+    state: FSMContext, 
+    db_session: AsyncSession,
+    booking_service: BookingService
+) -> None:
     """Processes choice of Online vs Offline consultation."""
     from sqlalchemy import select
     from app.database.models.booking import SpecialistSlot
@@ -143,6 +148,12 @@ async def process_format_selection(call: CallbackQuery, state: FSMContext, db_se
     format_type = call.data.split(":")[1]
     await state.update_data(format=format_type)
     
+    # Sync specialist slots immediately to ensure user sees latest calendar dates
+    try:
+        await booking_service.sync_specialist_slots_from_sheets()
+    except Exception as e:
+        logger.error("failed_to_sync_specialist_slots_on_format_select", error=str(e))
+        
     data = await state.get_data()
     psych_id = data["psych_id"]
     
@@ -431,7 +442,7 @@ async def process_phone(
         f"📞 Телефон: {phone}\n"
         f"🕒 Дата й час: {data['selected_date']} о {data['selected_time']}\n"
         f"💵 Загальна вартість: *{price_info:.2f} UAH*\n"
-        f"💳 Передплата: *50.00 UAH* (решта {price_info - 50.00:.2f} UAH сплачується при зустрічі)\n\n"
+        f"💳 Передплата: *1.00 UAH* (тест, решта {price_info - 1.00:.2f} UAH сплачується при зустрічі)\n\n"
         f"⚠️ *Слот зарезервовано на 15 хвилин для внесення передплати.*"
     )
 

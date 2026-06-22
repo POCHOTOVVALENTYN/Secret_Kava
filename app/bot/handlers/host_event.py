@@ -2,13 +2,14 @@
 import re
 import os
 import asyncio
+from datetime import datetime, timedelta
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, FSInputFile
+from aiogram.types import CallbackQuery, Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from structlog import get_logger
 
 from app.bot.states.booking import HostEventFSM
-from app.bot.keyboards.inline import get_payment_keyboard, get_main_menu_keyboard
+from app.bot.keyboards.inline import get_payment_keyboard
 from app.services.booking import BookingService
 from app.database.models.user import User
 
@@ -52,13 +53,11 @@ async def start_host_event_flow(call: CallbackQuery, state: FSMContext) -> None:
         "🎭 *Оренда залу для заходів* 🎭\n\n"
         "Бажаєте провести свій захід, лекцію, воркшоп чи групову зустріч у нашому затишному просторі?\n"
         "Надішліть заявку на проведення, заповнивши коротку анкету.\n\n"
-        "💳 Для реєстрації заявки вноситься передплата: *100.00 UAH* (кошти зараховуються в рахунок оренди).\n\n"
+        "💳 Для реєстрації заявки вноситься передплата: *1.00 UAH* (кошти зараховуються в рахунок оренди).\n\n"
         "✍️ *Будь ласка, введіть назву вашого заходу:*"
     )
     
-    # Simple cancel button
     from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="❌ Скасувати", callback_data="booking:cancel"))
     
@@ -155,7 +154,6 @@ async def process_event_title(message: Message, state: FSMContext) -> None:
     await state.update_data(title=title)
     
     from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="❌ Скасувати", callback_data="booking:cancel"))
     
@@ -163,8 +161,7 @@ async def process_event_title(message: Message, state: FSMContext) -> None:
         await message.bot.edit_message_caption(
             chat_id=message.chat.id,
             message_id=main_msg_id,
-            caption=f"🎭 Захід: *{title}*\n\n"
-                    f"✍️ *Введіть ім'я ведучого/організатора заходу:*",
+            caption=f"🎭 Захід: *{title}*\n\n✍️ *Введіть ім'я ведучого/організатора заходу:*",
             parse_mode="Markdown",
             reply_markup=builder.as_markup()
         )
@@ -174,7 +171,7 @@ async def process_event_title(message: Message, state: FSMContext) -> None:
     await state.set_state(HostEventFSM.EnterHost)
 
 @router.message(HostEventFSM.EnterHost)
-async def process_event_host(message: Message, state: FSMContext) -> None:
+async def process_event_host(message: Message, state: FSMContext, booking_service: BookingService) -> None:
     data = await state.get_data()
     main_msg_id = data.get("main_msg_id")
     
@@ -190,7 +187,7 @@ async def process_event_host(message: Message, state: FSMContext) -> None:
                 chat_id=message.chat.id,
                 message_id=main_msg_id,
                 caption=f"🎭 Захід: *{data['title']}*\n\n"
-                        f"⚠️ *Введіть коректне ім'я ведучого (мінімум 2 символи):*\n"
+                        f"⚠️ *Введіть ім'я ведучого (мінімум 2 символи):*\n"
                         f"✍️ *Введіть ім'я ведучого/організатора заходу:*",
                 parse_mode="Markdown",
                 reply_markup=message.bot.reply_markup
@@ -200,11 +197,16 @@ async def process_event_host(message: Message, state: FSMContext) -> None:
         return
         
     await state.update_data(host=host)
-    
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="❌ Скасувати", callback_data="booking:cancel"))
+
+    # Force slot sync from Google Sheets immediately to fetch the latest changes for room 2
+    try:
+        await booking_service.sync_room_rental_slots_from_sheets(room_id=2)
+    except Exception as e:
+        logger.error("failed_to_sync_room_slots_during_host_flow", error=str(e))
+
+    now = datetime.now()
+    active_dates = await booking_service.get_available_room_dates(room_id=2, year=now.year, month=now.month)
+    markup = _generate_host_event_calendar(active_dates)
     
     try:
         await message.bot.edit_message_caption(
@@ -212,62 +214,178 @@ async def process_event_host(message: Message, state: FSMContext) -> None:
             message_id=main_msg_id,
             caption=f"🎭 Захід: *{data['title']}*\n"
                     f"👤 Ведучий: *{host}*\n\n"
-                    f"✍️ *Введіть бажану дату та час проведення заходу (наприклад, 25.06 о 18:00):*",
+                    f"📅 *Оберіть дату оренди залу:*\n\n_(активні дати клікабельні, неактивні позначені крапкою)_",
             parse_mode="Markdown",
-            reply_markup=builder.as_markup()
+            reply_markup=markup
         )
     except Exception:
         pass
         
-    await state.set_state(HostEventFSM.EnterDate)
+    await state.set_state(HostEventFSM.SelectDate)
 
-@router.message(HostEventFSM.EnterDate)
-async def process_event_date(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
-    main_msg_id = data.get("main_msg_id")
+def _generate_host_event_calendar(active_dates: set[str]) -> InlineKeyboardMarkup:
+    import calendar
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
     
-    try:
-        await message.delete()
-    except Exception:
-        pass
+    now = datetime.now()
+    year = now.year
+    month = now.month
+    
+    month_names = {
+        1: "Січень", 2: "Лютий", 3: "Березень", 4: "Квітень", 5: "Травень", 6: "Червень",
+        7: "Липень", 8: "Серпень", 9: "Вересень", 10: "Жовтень", 11: "Листопад", 12: "Грудень"
+    }
+    
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text=f"📅 {month_names[month]} {year}", callback_data="ignore"))
+    
+    weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
+    b.row(*[InlineKeyboardButton(text=wd, callback_data="ignore") for wd in weekdays])
+    
+    cal = calendar.Calendar(firstweekday=0)
+    month_days = cal.monthdayscalendar(year, month)
+    
+    for week in month_days:
+        row_buttons = []
+        for day in week:
+            if day == 0:
+                row_buttons.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
+            else:
+                date_str = f"{year}-{month:02d}-{day:02d}"
+                is_active = date_str in active_dates
+                
+                is_past = False
+                try:
+                    day_dt = datetime(year, month, day)
+                    if day_dt.date() < now.date():
+                        is_past = True
+                except ValueError:
+                    pass
+                
+                if is_active and not is_past:
+                    row_buttons.append(InlineKeyboardButton(text=str(day), callback_data=f"host_event_date:{date_str}"))
+                else:
+                    row_buttons.append(InlineKeyboardButton(text="·", callback_data="ignore"))
+        b.row(*row_buttons)
         
-    date_str = message.text.strip() if message.text else ""
-    if not date_str or len(date_str) < 4:
-        try:
-            await message.bot.edit_message_caption(
-                chat_id=message.chat.id,
-                message_id=main_msg_id,
-                caption=f"🎭 Захід: *{data['title']}*\n"
-                        f"👤 Ведучий: *{data['host']}*\n\n"
-                        f"⚠️ *Введіть коректну дату та час (наприклад, 25.06 о 18:00):*",
-                parse_mode="Markdown",
-                reply_markup=message.bot.reply_markup
-            )
-        except Exception:
-            pass
+    b.row(InlineKeyboardButton(text="❌ Скасувати", callback_data="booking:cancel"))
+    return b.as_markup()
+
+@router.callback_query(F.data.startswith("host_event_date:"), HostEventFSM.SelectDate)
+async def process_host_event_date(
+    call: CallbackQuery, 
+    state: FSMContext,
+    booking_service: BookingService
+) -> None:
+    await call.answer()
+    selected_date_str = call.data.split(":")[1]
+    await state.update_data(selected_date=selected_date_str)
+    
+    free_times = await booking_service.get_available_room_slots(room_id=2, date_str=selected_date_str)
+            
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    
+    builder = InlineKeyboardBuilder()
+    for t in free_times:
+        builder.add(InlineKeyboardButton(text=f"⏰ {t}", callback_data=f"host_event_time:{t}"))
+        
+    builder.adjust(3)
+    builder.row(InlineKeyboardButton(text="⬅️ Назад до дат", callback_data="back:host_event_date"))
+    
+    data = await state.get_data()
+    await call.message.edit_caption(
+        caption=f"🎭 Захід: *{data['title']}*\n"
+                f"👤 Ведучий: *{data['host']}*\n\n"
+                f"⏰ *Оберіть час початку оренди залу на {selected_date_str}:*",
+        parse_mode="Markdown",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(HostEventFSM.SelectSlot)
+
+@router.callback_query(F.data.startswith("host_event_time:"), HostEventFSM.SelectSlot)
+async def process_host_event_slot(
+    call: CallbackQuery,
+    state: FSMContext,
+    booking_service: BookingService
+) -> None:
+    await call.answer()
+    selected_time = call.data.split(":", 1)[1]
+    await state.update_data(selected_time=selected_time)
+    
+    data = await state.get_data()
+    selected_date = data["selected_date"]
+    
+    non_locked_free_times = set(await booking_service.get_available_room_slots(room_id=2, date_str=selected_date))
+            
+    start_dt = datetime.strptime(selected_time, "%H:%M")
+    consecutive_options = []
+    for duration in (1, 2, 3, 4, 5, 6):
+        is_consecutive_free = True
+        for offset in range(duration):
+            check_time_str = (start_dt + timedelta(hours=offset)).strftime("%H:%M")
+            if check_time_str not in non_locked_free_times:
+                is_consecutive_free = False
+                break
+        if is_consecutive_free:
+            consecutive_options.append(duration)
+            
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    
+    builder = InlineKeyboardBuilder()
+    for duration in consecutive_options:
+        text_label = f"{duration} год. ⏰"
+        builder.add(InlineKeyboardButton(text=text_label, callback_data=f"host_event_dur:{duration}"))
+        
+    builder.adjust(3)
+    builder.row(InlineKeyboardButton(text="⬅️ Назад до годин", callback_data=f"back:host_event_slot:{selected_date}"))
+    
+    await call.message.edit_caption(
+        caption=f"🎭 Захід: *{data['title']}*\n"
+                f"👤 Ведучий: *{data['host']}*\n"
+                f"📅 Дата: *{selected_date}* | Початок: *{selected_time}*\n\n"
+                f"⏰ *Оберіть тривалість оренди залу:*",
+        parse_mode="Markdown",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(HostEventFSM.SelectDuration)
+
+@router.callback_query(F.data.startswith("host_event_dur:"), HostEventFSM.SelectDuration)
+async def process_host_event_duration(
+    call: CallbackQuery, 
+    state: FSMContext,
+    booking_service: BookingService
+) -> None:
+    hours = int(call.data.split(":")[1])
+    data = await state.get_data()
+    selected_date = data["selected_date"]
+    selected_time = data["selected_time"]
+    
+    locked = await booking_service.lock_room_rental_slots(
+        room_id=2,
+        date_str=selected_date,
+        time_str=selected_time,
+        duration_hours=hours,
+        user_id=call.from_user.id
+    )
+    if not locked:
+        await call.answer("⚠️ Обраний час вже заблоковано іншим клієнтом. Оберіть інший час.", show_alert=True)
         return
         
-    await state.update_data(date=date_str)
+    await call.answer()
+    await state.update_data(hours=hours)
     
     from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="❌ Скасувати", callback_data="booking:cancel"))
-    
-    try:
-        await message.bot.edit_message_caption(
-            chat_id=message.chat.id,
-            message_id=main_msg_id,
-            caption=f"🎭 Захід: *{data['title']}*\n"
-                    f"👤 Ведучий: *{data['host']}*\n"
-                    f"📅 Дата: *{date_str}*\n\n"
-                    f"✍️ *Введіть ліміт місць (кількість учасників від 4 до 20 включно):*",
-            parse_mode="Markdown",
-            reply_markup=builder.as_markup()
-        )
-    except Exception:
-        pass
-        
+
+    await call.message.edit_caption(
+        caption=f"🎭 Захід: *{data['title']}*\n"
+                f"👤 Ведучий: *{data['host']}*\n"
+                f"📅 Дата: *{selected_date}* | Час: *{selected_time}* ({hours} год.)\n\n"
+                f"✍️ *Введіть ліміт місць (кількість учасників від 4 до 20 включно):*",
+        parse_mode="Markdown",
+        reply_markup=builder.as_markup()
+    )
     await state.set_state(HostEventFSM.EnterLimit)
 
 @router.message(HostEventFSM.EnterLimit)
@@ -292,7 +410,7 @@ async def process_event_limit(message: Message, state: FSMContext) -> None:
                 message_id=main_msg_id,
                 caption=f"🎭 Захід: *{data['title']}*\n"
                         f"👤 Ведучий: *{data['host']}*\n"
-                        f"📅 Дата: *{data['date']}*\n\n"
+                        f"📅 Дата: *{data['selected_date']}* | Час: *{data['selected_time']}* ({data['hours']} год.)\n\n"
                         f"⚠️ *Введіть коректне ціле число від 4 до 20 для ліміту місць:*",
                 parse_mode="Markdown",
                 reply_markup=message.bot.reply_markup
@@ -304,7 +422,6 @@ async def process_event_limit(message: Message, state: FSMContext) -> None:
     await state.update_data(limit=limit)
     
     from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="❌ Скасувати", callback_data="booking:cancel"))
     
@@ -314,7 +431,7 @@ async def process_event_limit(message: Message, state: FSMContext) -> None:
             message_id=main_msg_id,
             caption=f"🎭 Захід: *{data['title']}*\n"
                     f"👤 Ведучий: *{data['host']}*\n"
-                    f"📅 Дата: *{data['date']}*\n"
+                    f"📅 Дата: *{data['selected_date']}* | Час: *{data['selected_time']}* ({data['hours']} год.)\n"
                     f"👥 Ліміт місць: *{limit}*\n\n"
                     f"✍️ *Введіть вартість участі для одного клієнта (у грн, наприклад 400, або 0 якщо безкоштовно):*",
             parse_mode="Markdown",
@@ -347,7 +464,7 @@ async def process_event_price(message: Message, state: FSMContext) -> None:
                 message_id=main_msg_id,
                 caption=f"🎭 Захід: *{data['title']}*\n"
                         f"👤 Ведучий: *{data['host']}*\n"
-                        f"📅 Дата: *{data['date']}*\n"
+                        f"📅 Дата: *{data['selected_date']}* | Час: *{data['selected_time']}* ({data['hours']} год.)\n"
                         f"👥 Ліміт місць: *{data['limit']}*\n\n"
                         f"⚠️ *Введіть коректне число для ціни (мінімум 0):*",
                 parse_mode="Markdown",
@@ -360,7 +477,6 @@ async def process_event_price(message: Message, state: FSMContext) -> None:
     await state.update_data(price=price)
     
     from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="❌ Скасувати", callback_data="booking:cancel"))
     
@@ -370,7 +486,7 @@ async def process_event_price(message: Message, state: FSMContext) -> None:
             message_id=main_msg_id,
             caption=f"🎭 Захід: *{data['title']}*\n"
                     f"👤 Ведучий: *{data['host']}*\n"
-                    f"📅 Дата: *{data['date']}*\n"
+                    f"📅 Дата: *{data['selected_date']}* | Час: *{data['selected_time']}* ({data['hours']} год.)\n"
                     f"👥 Ліміт: *{data['limit']}* | 💵 Вартість: *{price} грн*\n\n"
                     f"👤 *Будь ласка, введіть Ваше Ім'я та Прізвище (для договору оренди):*",
             parse_mode="Markdown",
@@ -398,7 +514,8 @@ async def process_host_name(message: Message, state: FSMContext) -> None:
                 chat_id=message.chat.id,
                 message_id=main_msg_id,
                 caption=f"🎭 Захід: *{data['title']}*\n"
-                        f"👤 Ведучий: *{data['host']}*\n\n"
+                        f"👤 Ведучий: *{data['host']}*\n"
+                        f"📅 Дата: *{data['selected_date']}* | Час: *{data['selected_time']}* ({data['hours']} год.)\n\n"
                         f"⚠️ *Введіть коректне ім'я та прізвище (мінімум 3 символи):*\n"
                         f"👤 *Будь ласка, введіть Ваше Ім'я та Прізвище (для договору оренди):*",
                 parse_mode="Markdown",
@@ -493,12 +610,13 @@ async def process_host_phone(
     await state.update_data(client_phone=phone)
     data = await state.get_data()
     
-    # Generate WayForPay invoice for 100 UAH prepayment
     invoice_url, invoice_id = await booking_service.create_host_event_invoice(
         user_id=current_user.id,
         title=data["title"],
         host=data["host"],
-        date_str=data["date"],
+        date_str=data["selected_date"],
+        time_str=data["selected_time"],
+        hours=data["hours"],
         limit=data["limit"],
         price=data["price"],
         client_name=data["client_name"],
@@ -508,7 +626,6 @@ async def process_host_phone(
     from aiogram.types import ReplyKeyboardRemove
     await state.update_data(invoice_id=invoice_id)
     
-    # Hide reply keyboard
     dummy = await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
     try:
         await dummy.delete()
@@ -519,12 +636,12 @@ async def process_host_phone(
         f"💳 *Розрахунок реєстрації заходу:*\n\n"
         f"🎭 Назва: *{data['title']}*\n"
         f"👤 Ведучий: *{data['host']}*\n"
-        f"📅 Дата: *{data['date']}*\n"
+        f"📅 Дата: *{data['selected_date']}* | Час: *{data['selected_time']}* ({data['hours']} год.)\n"
         f"👥 Ліміт місць: *{data['limit']}*\n"
         f"💵 Вартість для клієнтів: *{data['price']} грн*\n"
         f"👤 Заявник: *{data['client_name']}*\n"
         f"📞 Телефон: *{phone}*\n\n"
-        f"💳 Передплата: *100.00 UAH*\n\n"
+        f"💳 Передплата: *1.00 UAH*\n\n"
         f"⚠️ _Заявка буде надіслана на модерацію та внесена до афіші після успішної оплати передплати._"
     )
     
@@ -534,7 +651,7 @@ async def process_host_phone(
             message_id=main_msg_id,
             caption=summary_text,
             parse_mode="Markdown",
-            reply_markup=get_payment_keyboard(invoice_url, amount=100.0)
+            reply_markup=get_payment_keyboard(invoice_url, amount=1.0)
         )
     except Exception:
         await message.answer(
@@ -550,3 +667,55 @@ async def process_host_phone(
             pass
             
     await state.set_state(HostEventFSM.ConfirmAndPay)
+
+@router.callback_query(F.data == "back:host_event_date")
+async def back_to_host_event_date(
+    call: CallbackQuery, 
+    state: FSMContext,
+    booking_service: BookingService
+) -> None:
+    await call.answer()
+    data = await state.get_data()
+    
+    now = datetime.now()
+    active_dates = await booking_service.get_available_room_dates(room_id=2, year=now.year, month=now.month)
+    markup = _generate_host_event_calendar(active_dates)
+    
+    await call.message.edit_caption(
+        caption=f"🎭 Захід: *{data['title']}*\n"
+                f"👤 Ведучий: *{data['host']}*\n\n"
+                f"📅 *Оберіть дату оренди залу:*\n\n_(активні дати клікабельні, неактивні позначені крапкою)_",
+        parse_mode="Markdown",
+        reply_markup=markup
+    )
+    await state.set_state(HostEventFSM.SelectDate)
+
+@router.callback_query(F.data.startswith("back:host_event_slot:"))
+async def back_to_host_event_slot(
+    call: CallbackQuery,
+    state: FSMContext,
+    booking_service: BookingService
+) -> None:
+    await call.answer()
+    selected_date_str = call.data.split(":")[2]
+    
+    free_times = await booking_service.get_available_room_slots(room_id=2, date_str=selected_date_str)
+            
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    
+    builder = InlineKeyboardBuilder()
+    for t in free_times:
+        builder.add(InlineKeyboardButton(text=f"⏰ {t}", callback_data=f"host_event_time:{t}"))
+        
+    builder.adjust(3)
+    builder.row(InlineKeyboardButton(text="⬅️ Назад до дат", callback_data="back:host_event_date"))
+    
+    data = await state.get_data()
+    await call.message.edit_caption(
+        caption=f"🎭 Захід: *{data['title']}*\n"
+                f"👤 Ведучий: *{data['host']}*\n\n"
+                f"⏰ *Оберіть час початку оренди залу на {selected_date_str}:*",
+        parse_mode="Markdown",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(HostEventFSM.SelectSlot)
