@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     
     # Infrastructure
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/psychology_db"
+        default="sqlite+aiosqlite:///app.db"
     )
     REDIS_URL: str = Field(
         default="redis://localhost:6379/0"
