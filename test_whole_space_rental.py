@@ -89,14 +89,19 @@ async def run_whole_space_test():
         await db.execute(delete(ConsultationBooking).where(ConsultationBooking.start_time >= day1_start, ConsultationBooking.start_time <= day2_end))
         await db.execute(delete(RoomBooking).where(RoomBooking.start_time >= day1_start, RoomBooking.start_time <= day2_end))
         
-        # Seed Room 1 slots to test double-blocking later
+        # Seed Room 1 and Room 2 slots to test double-blocking later
         for h in range(8, 20):
             t_str = f"{h:02d}:00"
-            for rid in (1,):
+            # Seed Wednesday slots for both rooms
+            for rid in (1, 2):
                 slot = RoomRentalSlot(room_id=rid, date=wednesday_str, time=t_str, is_booked=False)
                 db.add(slot)
-                slot = RoomRentalSlot(room_id=rid, date=friday_str, time=t_str, is_booked=False)
-                db.add(slot)
+            # Seed Friday slots (for Room 2, exclude 17:00, 18:00, 19:00)
+            slot1 = RoomRentalSlot(room_id=1, date=friday_str, time=t_str, is_booked=False)
+            db.add(slot1)
+            if h not in (17, 18, 19):
+                slot2 = RoomRentalSlot(room_id=2, date=friday_str, time=t_str, is_booked=False)
+                db.add(slot2)
         await db.flush()
         
         # Clear Redis locks for test dates
@@ -108,7 +113,7 @@ async def run_whole_space_test():
             await r_client.delete(f"lock:room_slot:2:{friday_str}:{t_str}")
             
         # Test 1: Prepayment amount for Room ID = 2
-        print("\n--- Test 1: Room 2 Prepayment Amount Verification (Expect 200 UAH) ---")
+        print("\n--- Test 1: Room 2 Prepayment Amount Verification (Expect 50.0 UAH) ---")
         invoice_url, invoice_id = await booking_service.create_rental_invoice(
             user_id=user.id,
             room_id=2,
@@ -120,11 +125,11 @@ async def run_whole_space_test():
             client_phone="+380991234567"
         )
         
-        # Verify pending payment is 200 UAH
+        # Verify pending payment is 50.0 UAH
         pay_query = select(Payment).where(Payment.invoice_id == invoice_id)
         pay_res = await db.execute(pay_query)
         payment = pay_res.scalar_one()
-        assert float(payment.amount) == 200.0, f"Expected 200.0, got {payment.amount}"
+        assert float(payment.amount) == 50.0, f"Expected 50.0, got {payment.amount}"
         print(f"✅ Success: WayForPay invoice prepayment is exactly {payment.amount} UAH")
         
         # Test 2: Friday 17:00 - 20:00 reservation block for 'Жіноче коло'

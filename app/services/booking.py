@@ -533,10 +533,10 @@ class BookingService:
         client_name: str,
         client_phone: str
     ) -> tuple[str, str]:
-        """Generates WayForPay payment link for hosting event request (prepayment of 100 UAH)."""
+        """Generates WayForPay payment link for hosting event request (prepayment of 50 UAH)."""
         import uuid
-        prepay_amount = 1.0
-        description = f"Передплата за проведення заходу (тест 1 грн): «{title}»"
+        prepay_amount = 50.0
+        description = f"Передплата за проведення заходу (50 грн): «{title}»"
         if not self.payment:
             mock_id = str(uuid.uuid4())
             invoice_url, invoice_id = f"https://checkout.wayforpay.com/pay/mock_host_{mock_id}", mock_id
@@ -595,7 +595,8 @@ class BookingService:
         client_phone: str
     ) -> tuple[str, str]:
         """Generates dynamic checkout page URL using WayForPay Client API and saves pending booking."""
-        description = f"Передплата 1 грн: Консультація з психологом (ID #{psychologist_id}, {format_type})"
+        prepay_amount = 100.0
+        description = f"Передплата 100 грн: Консультація з психологом (ID #{psychologist_id}, {format_type})"
         
         import uuid
         if not self.payment:
@@ -603,7 +604,7 @@ class BookingService:
             invoice_url, invoice_id = f"https://checkout.wayforpay.com/pay/mock_{mock_id}", mock_id
         else:
             order_id = f"cb_{uuid.uuid4().hex[:12]}"
-            invoice_url, invoice_id = await self.payment.create_invoice(1.0, order_id, client_name, product_name=description)
+            invoice_url, invoice_id = await self.payment.create_invoice(prepay_amount, order_id, client_name, product_name=description)
             
         start_dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
         end_dt = start_dt + timedelta(hours=1)
@@ -622,7 +623,7 @@ class BookingService:
         
         new_payment = Payment(
             consultation_id=new_booking.id,
-            amount=1.0,
+            amount=prepay_amount,
             currency="UAH",
             status="pending",
             provider="wayforpay",
@@ -648,8 +649,8 @@ class BookingService:
         client_name: str,
         client_phone: str
     ) -> tuple[str, str]:
-        prepay_amount = 1.0
-        description = f"Передплата 1 грн: Оренда кабінету #{room_id} на {hours} год."
+        prepay_amount = 50.0
+        description = f"Передплата 50 грн: Оренда кабінету #{room_id} на {hours} год."
         
         import uuid
         if not self.payment:
@@ -698,12 +699,14 @@ class BookingService:
         date_str: str,
         price: float,
         client_name: str,
-        client_phone: str
+        client_phone: str,
+        prepay_amount: float = 1.0
     ) -> tuple[str, str]:
         """Generates dynamic checkout page URL using WayForPay API and saves pending event booking."""
         import uuid
-        prepay_amount = 1.0
-        description = f"Передплата 1 грн: {event_name}"
+        if event_name == "Жіноче коло" and prepay_amount == 1.0:
+            prepay_amount = 200.0
+        description = f"Передплата {prepay_amount:.0f} грн: {event_name}"
         if not self.payment:
             mock_id = str(uuid.uuid4())
             invoice_url, invoice_id = f"https://checkout.wayforpay.com/pay/mock_event_{mock_id}", mock_id
@@ -1265,11 +1268,14 @@ class BookingService:
         
         # Build description
         if payment.consultation_id:
-            description = f"Передплата 1 грн: Консультація з психологом (ID #{booking_obj.psychologist_id}, {booking_obj.format})"
+            description = f"Передплата {float(payment.amount):.0f} грн: Консультація з психологом (ID #{booking_obj.psychologist_id}, {booking_obj.format})"
         elif payment.room_booking_id:
-            description = f"Передплата 1 грн: Оренда кабінету #{booking_obj.room_id}"
+            if booking_obj.room_id == 1:
+                description = f"Передплата {float(payment.amount):.0f} грн: Оренда кабінету #{booking_obj.room_id}"
+            else:
+                description = f"Передплата {float(payment.amount):.0f} грн: Оренда залу для проведення заходу"
         else:
-            description = f"Передплата 1 грн: {booking_obj.event_name}"
+            description = f"Передплата {float(payment.amount):.0f} грн: {booking_obj.event_name}"
         
         if not self.payment:
             invoice_url = f"https://checkout.wayforpay.com/pay/mock_retry_{order_id}"

@@ -35,6 +35,12 @@ async def test_womens_circle_logic():
             )
             await db.flush()
             
+        # Clean up any lingering test bookings
+        from sqlalchemy import delete
+        await db.execute(delete(EventBooking).where(EventBooking.event_id == 99))
+        await db.execute(delete(Payment).where(Payment.event_booking_id.isnot(None)))
+        await db.flush()
+            
         r_client = redis.from_url(settings.REDIS_URL)
         
         booking_service = BookingService(
@@ -70,12 +76,12 @@ async def test_womens_circle_logic():
         
         print(f"✅ Pending Women's Circle Booking & Payment created! Invoice URL: {invoice_url}")
         
-        # Check prepay amount is 100 UAH
+        # Check prepay amount is 200 UAH
         payment_query = select(Payment).where(Payment.invoice_id == invoice_id)
         res = await db.execute(payment_query)
         pay_record = res.scalar_one()
-        print(f"Payment record amount: {pay_record.amount} (Expected: 100.00)")
-        assert float(pay_record.amount) == 100.0, f"Expected prepay amount 100.0 UAH, got {pay_record.amount}"
+        print(f"Payment record amount: {pay_record.amount} (Expected: 200.00)")
+        assert float(pay_record.amount) == 200.0, f"Expected prepay amount 200.0 UAH, got {pay_record.amount}"
         
         await db.commit()
         await r_client.close()

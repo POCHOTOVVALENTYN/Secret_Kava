@@ -300,18 +300,8 @@ async def process_event_client_phone(
     from aiogram.types import ReplyKeyboardRemove
     # Remove reply keyboard
     dummy = await message.answer("⏳ Обробка...", reply_markup=ReplyKeyboardRemove())
-    try:
-        await dummy.delete()
-    except Exception:
-        pass
 
     if event_price == 0.0:
-        if prompt_message_id:
-            try:
-                await message.bot.delete_message(chat_id=message.chat.id, message_id=prompt_message_id)
-            except Exception:
-                pass
-                
         await booking_service.confirm_free_event_booking(
             user_id=current_user.id,
             event_id=int(data.get("event_id", 1)),
@@ -321,9 +311,24 @@ async def process_event_client_phone(
             client_phone=phone,
             telegram_id=message.from_user.id
         )
+        
+        # Clean up prompts only AFTER the confirmation message is sent
+        try:
+            await dummy.delete()
+        except Exception:
+            pass
+            
+        if prompt_message_id:
+            try:
+                await message.bot.delete_message(chat_id=message.chat.id, message_id=prompt_message_id)
+            except Exception:
+                pass
+                
         await state.clear()
         return
         
+    prepay_amount = 200.0 if data.get("event_name") == "Жіноче коло" or data.get("event_id") == 99 else 1.0
+
     # Generate dynamic invoice via booking_service for paid events
     invoice_url, invoice_id = await booking_service.create_event_invoice(
         user_id=current_user.id,
@@ -332,7 +337,8 @@ async def process_event_client_phone(
         date_str=data.get("event_date", "2026-05-30 18:00"),
         price=event_price,
         client_name=data["event_client_name"],
-        client_phone=phone
+        client_phone=phone,
+        prepay_amount=prepay_amount
     )
     
     from app.bot.keyboards.inline import get_payment_keyboard
@@ -344,14 +350,19 @@ async def process_event_client_phone(
             f"👤 Ім'я: {data['event_client_name']}\n"
             f"📞 Телефон: {phone}\n"
             f"💵 Загальна вартість: *{event_price:.2f} UAH*\n"
-            f"💳 Передплата: *1.00 UAH* (тест, решта {event_price - 1.00:.2f} UAH сплачується при зустрічі)\n\n"
+            f"💳 Передплата: *{prepay_amount:.2f} UAH* (решта {event_price - prepay_amount:.2f} UAH сплачується при зустрічі)\n\n"
             f"⚠️ *Сплатіть передплату для резервування квитка:*"
         ),
         parse_mode="Markdown",
-        reply_markup=get_payment_keyboard(invoice_url)
+        reply_markup=get_payment_keyboard(invoice_url, amount=prepay_amount)
     )
     
-    # Delete the previous bot prompt only AFTER the final message is sent
+    # Delete the previous bot prompt and dummy only AFTER the final message is sent
+    try:
+        await dummy.delete()
+    except Exception:
+        pass
+        
     if prompt_message_id:
         try:
             await message.bot.delete_message(chat_id=message.chat.id, message_id=prompt_message_id)

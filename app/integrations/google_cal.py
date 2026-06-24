@@ -42,28 +42,29 @@ class GoogleCalendarClient:
                 client_id=client_id,
                 client_secret=client_secret
             )
-            self._refresh_credentials()
             logger.info("google_calendar_client_initialized_via_oauth2")
 
-        # Initialize Google Calendar v3 service resource
-        self.service = build("calendar", "v3", credentials=self.creds)
+        # Initialize Google Calendar v3 service resource lazily in a thread
+        self.service = None
 
-    def _refresh_credentials(self) -> None:
-        """Forces OAuth Access Token regeneration if expired (skipped for Service Account)."""
-        if self.is_service_account:
-            return
+    async def _get_service(self):
+        """Lazily initializes the service and refreshes credentials in a thread to avoid blocking."""
+        def _init():
+            if not self.is_service_account and getattr(self, "creds", None):
+                try:
+                    if not self.creds.valid:
+                        self.creds.refresh(Request())
+                except Exception as e:
+                    logger.critical("google_credentials_refresh_failed", error=str(e))
+                    raise RuntimeError("OAuth2 Credentials validation failed") from e
+            if self.service is None:
+                self.service = build("calendar", "v3", credentials=self.creds, static_discovery=False)
+            return self.service
             
-        try:
-            if not self.creds.valid:
-                self.creds.refresh(Request())
-        except Exception as e:
-            logger.critical("google_credentials_refresh_failed", error=str(e))
-            raise RuntimeError("OAuth2 Credentials validation failed") from e
+        return await asyncio.to_thread(_init)
 
     async def get_busy_intervals(self, calendar_id: str, start_time: datetime, end_time: datetime) -> list[dict[str, datetime]]:
         """Queries Google Calendar FreeBusy API to determine busy intervals."""
-        self._refresh_credentials()
-        
         body = {
             "timeMin": start_time.isoformat(),
             "timeMax": end_time.isoformat(),
@@ -71,8 +72,9 @@ class GoogleCalendarClient:
             "items": [{"id": calendar_id}]
         }
         
+        svc = await self._get_service()
         def _query():
-            return self.service.freebusy().query(body=body).execute()
+            return svc.freebusy().query(body=body).execute()
             
         response = await asyncio.to_thread(_query)
         busy_data = response.get("calendars", {}).get(calendar_id, {}).get("busy", [])
@@ -87,8 +89,6 @@ class GoogleCalendarClient:
 
     async def create_booking_event(self, calendar_id: str, summary: str, start_time: datetime, duration_minutes: int) -> str:
         """Publishes a confirmed reservation directly inside Google Calendar, returning EventID."""
-        self._refresh_credentials()
-        
         end_time = start_time + timedelta(minutes=duration_minutes)
         event_body = {
             "summary": summary,
@@ -110,18 +110,19 @@ class GoogleCalendarClient:
             },
         }
         
+        svc = await self._get_service()
         def _insert():
-            return self.service.events().insert(calendarId=calendar_id, body=event_body).execute()
+            return svc.events().insert(calendarId=calendar_id, body=event_body).execute()
             
         event = await asyncio.to_thread(_insert)
         return str(event.get("id"))
 
     async def delete_booking_event(self, calendar_id: str, event_id: str) -> None:
         """Cancels/removes a booking event from Google Calendar."""
-        self._refresh_credentials()
         try:
+            svc = await self._get_service()
             def _delete():
-                self.service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+                svc.events().delete(calendarId=calendar_id, eventId=event_id).execute()
             await asyncio.to_thread(_delete)
             logger.info("google_calendar_event_deleted", event_id=event_id)
         except Exception as e:

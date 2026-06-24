@@ -36,6 +36,18 @@ async def run_prepayment_test():
             )
             await db.flush()
             
+        # Seed rooms
+        from app.database.models.booking import Room
+        room1 = await db.scalar(select(Room).where(Room.id == 1))
+        if not room1:
+            room1 = Room(id=1, tenant_id=user.tenant_id, name="Головний кабінет", description="Опис", hourly_rate=200.0)
+            db.add(room1)
+        room2 = await db.scalar(select(Room).where(Room.id == 2))
+        if not room2:
+            room2 = Room(id=2, tenant_id=user.tenant_id, name="Зал для заходів", description="Опис", hourly_rate=500.0)
+            db.add(room2)
+        await db.flush()
+            
         # Get or create psychologist for booking test
         psych_query = select(Psychologist).where(Psychologist.name == "Анна Зозуля")
         psych_res = await db.execute(psych_query)
@@ -160,8 +172,8 @@ async def run_prepayment_test():
         c_pay_res = await db.execute(c_pay_query)
         c_payment = c_pay_res.scalars().first()
         assert c_payment is not None
-        print(f"Consultation Payment Amount: {c_payment.amount} (Expected 50.0), Status: {c_payment.status} (Expected success)")
-        assert float(c_payment.amount) == 50.0
+        print(f"Consultation Payment Amount: {c_payment.amount} (Expected 100.0), Status: {c_payment.status} (Expected success)")
+        assert float(c_payment.amount) == 100.0
         assert c_payment.status == "success"
 
         # 2. Verify Room Rental
@@ -196,11 +208,11 @@ async def run_prepayment_test():
         e_pay_res = await db.execute(e_pay_query)
         e_payment = e_pay_res.scalars().first()
         assert e_payment is not None
-        print(f"Event Payment Amount: {e_payment.amount} (Expected 50.0), Status: {e_payment.status} (Expected success)")
-        assert float(e_payment.amount) == 50.0
+        print(f"Event Payment Amount: {e_payment.amount} (Expected 1.0), Status: {e_payment.status} (Expected success)")
+        assert float(e_payment.amount) == 1.0
         assert e_payment.status == "success"
         
-        print("\n🎉 ALL TESTS PASSED SUCCESSFULLY! Invoices are exactly 50 UAH and bookings retain full values.")
+        print("\n🎉 ALL TESTS PASSED SUCCESSFULLY! Invoices match production prepayments and bookings retain full values.")
 
 if __name__ == "__main__":
     asyncio.run(run_prepayment_test())

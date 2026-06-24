@@ -43,35 +43,38 @@ class GoogleSheetsClient:
                 client_id=client_id,
                 client_secret=client_secret
             )
-            self._refresh_credentials()
             logger.info("google_sheets_client_initialized_via_oauth2")
 
-        # Initialize Google Sheets v4 resource service
-        self.service = build("sheets", "v4", credentials=self.creds)
+        # Initialize Google Sheets v4 resource service lazily in a thread
+        self.service = None
 
-    def _refresh_credentials(self) -> None:
-        """Forces OAuth Access Token regeneration if expired (skipped for Service Account)."""
-        if self.is_service_account:
-            return
+    async def _get_service(self):
+        """Lazily initializes the service and refreshes credentials in a thread to avoid blocking."""
+        def _init():
+            if not self.is_service_account and getattr(self, "creds", None):
+                try:
+                    if not self.creds.valid:
+                        self.creds.refresh(Request())
+                except Exception as e:
+                    logger.critical("google_sheets_credentials_refresh_failed", error=str(e))
+                    raise RuntimeError("OAuth2 Credentials validation failed") from e
+            if self.service is None:
+                self.service = build("sheets", "v4", credentials=self.creds, static_discovery=False)
+            return self.service
             
-        try:
-            if not self.creds.valid:
-                self.creds.refresh(Request())
-        except Exception as e:
-            logger.critical("google_sheets_credentials_refresh_failed", error=str(e))
-            raise RuntimeError("OAuth2 Credentials validation failed") from e
+        return await asyncio.to_thread(_init)
 
     async def append_row(self, sheet_name: str, row_values: list[Any]) -> None:
         """Appends a new list of columns at the end of the specified sheet tab range."""
-        self._refresh_credentials()
         try:
             range_name = f"{sheet_name}!A:A"
             body = {
                 "values": [row_values]
             }
             
+            svc = await self._get_service()
             def _append():
-                return self.service.spreadsheets().values().append(
+                return svc.spreadsheets().values().append(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name,
                     valueInputOption="RAW",
@@ -89,11 +92,11 @@ class GoogleSheetsClient:
 
     async def update_cell(self, sheet_name: str, row: int, col_letter: str, value: Any) -> None:
         """Updates a single cell by A1 notation (e.g. sheet, row=3, col_letter='E' → E3)."""
-        self._refresh_credentials()
         cell_range = f"{sheet_name}!{col_letter}{row}"
         try:
+            svc = await self._get_service()
             def _update():
-                return self.service.spreadsheets().values().update(
+                return svc.spreadsheets().values().update(
                     spreadsheetId=self.spreadsheet_id,
                     range=cell_range,
                     valueInputOption="RAW",
@@ -107,12 +110,11 @@ class GoogleSheetsClient:
 
     async def read_sheet(self, sheet_name: str, range_name: str = "A:Z") -> list[list[Any]]:
         """Reads rows from the specified sheet tab range."""
-        self._refresh_credentials()
         try:
             full_range = f"{sheet_name}!{range_name}"
-            
+            svc = await self._get_service()
             def _get():
-                return self.service.spreadsheets().values().get(
+                return svc.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=full_range
                 ).execute()

@@ -60,7 +60,8 @@ async def test_payment_chain():
             date_str="2026-06-01",
             time_str="12:00",
             price=1000.0,
-            client_name="Тест Тестовий"
+            client_name="Тест Тестовий",
+            client_phone="+380505320682"
         )
         
         print(f"Created Invoice: {invoice_id}")
@@ -69,14 +70,14 @@ async def test_payment_chain():
     # 2. Trigger webhook
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            "http://localhost:8000/api/v1/payments/monobank/callback",
+            "http://localhost:8000/api/v1/payments/wayforpay/callback",
             json={
-                "invoiceId": invoice_id,
-                "status": "success",
-                "amount": 100000,
-                "modifiedDate": int(datetime.utcnow().timestamp())
-            },
-            headers={"x-sign": "test-signature"}
+                "merchantAccount": "www_instagram_com_128e0",
+                "orderReference": invoice_id,
+                "amount": 1,
+                "currency": "UAH",
+                "transactionStatus": "Approved"
+            }
         )
         print(f"Webhook Response: {response.status_code} - {response.json()}")
         

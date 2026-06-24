@@ -442,7 +442,7 @@ async def process_phone(
         f"📞 Телефон: {phone}\n"
         f"🕒 Дата й час: {data['selected_date']} о {data['selected_time']}\n"
         f"💵 Загальна вартість: *{price_info:.2f} UAH*\n"
-        f"💳 Передплата: *1.00 UAH* (тест, решта {price_info - 1.00:.2f} UAH сплачується при зустрічі)\n\n"
+        f"💳 Передплата: *100.00 UAH* (решта {price_info - 100.00:.2f} UAH сплачується при зустрічі)\n\n"
         f"⚠️ *Слот зарезервовано на 15 хвилин для внесення передплати.*"
     )
 
@@ -452,13 +452,13 @@ async def process_phone(
             message_id=main_msg_id,
             text=summary_text,
             parse_mode="Markdown",
-            reply_markup=get_payment_keyboard(invoice_url)
+            reply_markup=get_payment_keyboard(invoice_url, amount=100.0)
         )
     except Exception:
         await message.answer(
             text=summary_text,
             parse_mode="Markdown",
-            reply_markup=get_payment_keyboard(invoice_url)
+            reply_markup=get_payment_keyboard(invoice_url, amount=100.0)
         )
     
     # Delete the previous bot prompt only AFTER the final message is sent

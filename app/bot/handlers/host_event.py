@@ -53,7 +53,7 @@ async def start_host_event_flow(call: CallbackQuery, state: FSMContext) -> None:
         "🎭 *Оренда залу для заходів* 🎭\n\n"
         "Бажаєте провести свій захід, лекцію, воркшоп чи групову зустріч у нашому затишному просторі?\n"
         "Надішліть заявку на проведення, заповнивши коротку анкету.\n\n"
-        "💳 Для реєстрації заявки вноситься передплата: *1.00 UAH* (кошти зараховуються в рахунок оренди).\n\n"
+        "💳 Для реєстрації заявки вноситься передплата: *50.00 UAH* (кошти зараховуються в рахунок оренди).\n\n"
         "✍️ *Будь ласка, введіть назву вашого заходу:*"
     )
     
@@ -641,7 +641,7 @@ async def process_host_phone(
         f"💵 Вартість для клієнтів: *{data['price']} грн*\n"
         f"👤 Заявник: *{data['client_name']}*\n"
         f"📞 Телефон: *{phone}*\n\n"
-        f"💳 Передплата: *1.00 UAH*\n\n"
+        f"💳 Передплата: *50.00 UAH*\n\n"
         f"⚠️ _Заявка буде надіслана на модерацію та внесена до афіші після успішної оплати передплати._"
     )
     
@@ -651,13 +651,13 @@ async def process_host_phone(
             message_id=main_msg_id,
             caption=summary_text,
             parse_mode="Markdown",
-            reply_markup=get_payment_keyboard(invoice_url, amount=1.0)
+            reply_markup=get_payment_keyboard(invoice_url, amount=50.0)
         )
     except Exception:
         await message.answer(
             text=summary_text,
             parse_mode="Markdown",
-            reply_markup=get_payment_keyboard(invoice_url, amount=100.0)
+            reply_markup=get_payment_keyboard(invoice_url, amount=50.0)
         )
         
     if phone_prompt_msg_id:
