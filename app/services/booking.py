@@ -1472,6 +1472,28 @@ class BookingService:
                 date_only = row[4] if len(row) > 4 else ""
                 date_str = f"{date_only} {time_str}".strip()
                 
+                # Filter out expired/past events
+                from zoneinfo import ZoneInfo
+                kyiv_tz = ZoneInfo("Europe/Kyiv")
+                now_local = datetime.now(kyiv_tz)
+                
+                is_past = False
+                if date_str:
+                    event_dt = None
+                    for fmt in ("%d.%m.%Y %H:%M", "%Y-%m-%d %H:%M", "%d.%m.%Y", "%Y-%m-%d"):
+                        try:
+                            event_dt = datetime.strptime(date_str, fmt).replace(tzinfo=kyiv_tz)
+                            if "%H:%M" not in fmt:
+                                event_dt = event_dt.replace(hour=23, minute=59)
+                            break
+                        except ValueError:
+                            continue
+                    if event_dt and event_dt < now_local:
+                        is_past = True
+                        
+                if is_past:
+                    continue
+                
                 try:
                     limit = int(row[5]) if len(row) > 5 and row[5] else 15
                 except ValueError:
