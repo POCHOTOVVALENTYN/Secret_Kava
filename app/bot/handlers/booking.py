@@ -148,12 +148,6 @@ async def process_format_selection(
     format_type = call.data.split(":")[1]
     await state.update_data(format=format_type)
     
-    # Sync specialist slots immediately to ensure user sees latest calendar dates
-    try:
-        await booking_service.sync_specialist_slots_from_sheets()
-    except Exception as e:
-        logger.error("failed_to_sync_specialist_slots_on_format_select", error=str(e))
-        
     data = await state.get_data()
     psych_id = data["psych_id"]
     

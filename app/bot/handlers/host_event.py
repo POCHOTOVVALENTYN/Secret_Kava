@@ -198,12 +198,6 @@ async def process_event_host(message: Message, state: FSMContext, booking_servic
         
     await state.update_data(host=host)
 
-    # Force slot sync from Google Sheets immediately to fetch the latest changes for room 2
-    try:
-        await booking_service.sync_room_rental_slots_from_sheets(room_id=2)
-    except Exception as e:
-        logger.error("failed_to_sync_room_slots_during_host_flow", error=str(e))
-
     now = datetime.now()
     active_dates = await booking_service.get_available_room_dates(room_id=2, year=now.year, month=now.month)
     markup = _generate_host_event_calendar(active_dates)

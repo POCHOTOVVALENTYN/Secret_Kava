@@ -315,12 +315,6 @@ async def process_room_selection(
             
     await call.answer()
     
-    # Force slot sync from Google Sheets immediately to fetch the latest changes
-    try:
-        await booking_service.sync_room_rental_slots_from_sheets()
-    except Exception as e:
-        logger.error("failed_to_sync_room_slots_during_flow", error=str(e))
-        
     room_name = "Головний кабінет"
     
     global _ROOMS_CACHE

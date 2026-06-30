@@ -11,6 +11,8 @@ from structlog import get_logger
 
 logger = get_logger()
 
+_DATABASE_SEEDED = False
+
 class AuthRegistrationMiddleware(BaseMiddleware):
     """Automatically records/registers client users in PostgreSQL database upon contact."""
 
@@ -20,6 +22,7 @@ class AuthRegistrationMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any]
     ) -> Any:
+        global _DATABASE_SEEDED
         user_info = None
         from aiogram.types import Update
         if isinstance(event, Update):
@@ -34,70 +37,74 @@ class AuthRegistrationMiddleware(BaseMiddleware):
 
         db_session: AsyncSession = data.get("db_session") # type: ignore
         if db_session:
-            # Auto seed default tenant so registration doesn't break
-            tenant_query = select(Tenant).limit(1)
-            tenant_res = await db_session.execute(tenant_query)
-            default_tenant = tenant_res.scalar_one_or_none()
-            
-            if not default_tenant:
-                default_tenant = Tenant(
-                    name="Головна студія",
-                    slug="main-studio",
-                    is_active=True
-                )
-                db_session.add(default_tenant)
-                await db_session.flush()
+            if not _DATABASE_SEEDED:
+                # Auto seed default tenant so registration doesn't break
+                tenant_query = select(Tenant).limit(1)
+                tenant_res = await db_session.execute(tenant_query)
+                default_tenant = tenant_res.scalar_one_or_none()
+                
+                if not default_tenant:
+                    default_tenant = Tenant(
+                        name="Головна студія",
+                        slug="main-studio",
+                        is_active=True
+                    )
+                    db_session.add(default_tenant)
+                    await db_session.flush()
 
-            # Auto seed default room to prevent ForeignKeyViolationError for room_bookings
-            from app.database.models.booking import Room
-            room_query = select(Room).where(Room.id == 1)
-            room_res = await db_session.execute(room_query)
-            default_room = room_res.scalar_one_or_none()
-            if not default_room:
-                default_room = Room(
-                    id=1,
-                    tenant_id=default_tenant.id,
-                    name="Головний кабінет",
-                    description="М'які терапевтичні крісла, торшер, фліпчарт, папір.",
-                    hourly_rate=200.0,
-                    is_active=True
-                )
-                db_session.add(default_room)
-                await db_session.flush()
+                # Auto seed default room to prevent ForeignKeyViolationError for room_bookings
+                from app.database.models.booking import Room
+                room_query = select(Room).where(Room.id == 1)
+                room_res = await db_session.execute(room_query)
+                default_room = room_res.scalar_one_or_none()
+                if not default_room:
+                    default_room = Room(
+                        id=1,
+                        tenant_id=default_tenant.id,
+                        name="Головний кабінет",
+                        description="М'які терапевтичні крісла, торшер, фліпчарт, папір.",
+                        hourly_rate=200.0,
+                        is_active=True
+                    )
+                    db_session.add(default_room)
+                    await db_session.flush()
 
-            room2_query = select(Room).where(Room.id == 2)
-            room2_res = await db_session.execute(room2_query)
-            room2 = room2_res.scalar_one_or_none()
-            if not room2:
-                room2 = Room(
-                    id=2,
-                    tenant_id=default_tenant.id,
-                    name="Зал для заходів",
-                    description="Оренда залу для групових заходів",
-                    hourly_rate=500.0,
-                    is_active=True
-                )
-                db_session.add(room2)
-                await db_session.flush()
+                room2_query = select(Room).where(Room.id == 2)
+                room2_res = await db_session.execute(room2_query)
+                room2 = room2_res.scalar_one_or_none()
+                if not room2:
+                    room2 = Room(
+                        id=2,
+                        tenant_id=default_tenant.id,
+                        name="Зал для заходів",
+                        description="Оренда залу для групових заходів",
+                        hourly_rate=500.0,
+                        is_active=True
+                    )
+                    db_session.add(room2)
+                    await db_session.flush()
 
-            # Auto seed default psychologist
-            from app.database.models.psychologist import Psychologist
-            psych_query = select(Psychologist).limit(1)
-            psych_res = await db_session.execute(psych_query)
-            default_psych = psych_res.scalar_one_or_none()
-            if not default_psych:
-                default_psych = Psychologist(
-                    tenant_id=default_tenant.id,
-                    name="Анна Зозуля",
-                    bio="Засновниця, психотерапевт",
-                    experience_years=10,
-                    specializations="Психолог",
-                    price_online=1000.0,
-                    price_offline=1000.0,
-                    is_active=True
-                )
-                db_session.add(default_psych)
-                await db_session.flush()
+                # Auto seed default psychologist
+                from app.database.models.psychologist import Psychologist
+                psych_query = select(Psychologist).limit(1)
+                psych_res = await db_session.execute(psych_query)
+                default_psych = psych_res.scalar_one_or_none()
+                if not default_psych:
+                    default_psych = Psychologist(
+                        tenant_id=default_tenant.id,
+                        name="Анна Зозуля",
+                        bio="Засновниця, психотерапевт",
+                        experience_years=10,
+                        specializations="Психолог",
+                        price_online=1000.0,
+                        price_offline=1000.0,
+                        is_active=True
+                    )
+                    db_session.add(default_psych)
+                    await db_session.flush()
+                
+                await db_session.commit()
+                _DATABASE_SEEDED = True
 
             if user_info and not user_info.is_bot:
                 user_repo = UserRepository(db_session)
@@ -111,9 +118,9 @@ class AuthRegistrationMiddleware(BaseMiddleware):
                         first_name=user_info.first_name,
                         last_name=user_info.last_name,
                         role="client",
-                        tenant_id=default_tenant.id
+                        tenant_id=1
                     )
-                    logger.info("new_user_auto_registered", user_id=user_info.id, tenant=default_tenant.slug)
+                    logger.info("new_user_auto_registered", user_id=user_info.id, tenant="main-studio")
                 
                 # Expose user model to handler parameters
                 data["current_user"] = user
