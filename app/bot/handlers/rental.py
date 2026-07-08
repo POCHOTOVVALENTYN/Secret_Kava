@@ -32,30 +32,7 @@ _SPACE_PHOTO_FILE_ID = None
 @router.callback_query(F.data == "menu:rent_room")
 async def start_rental_flow(call: CallbackQuery, state: FSMContext, sheets=None) -> None:
     """Entry point for room rentals. Displays offices galleries."""
-    loading_text = "⏳ *Завантажуємо інформацію про кабінети... Будь ласка, зачекайте.*"
-    target_msg = None
-    if call.message.photo or call.message.video or call.message.document:
-        try:
-            await call.message.delete()
-        except Exception:
-            pass
-        target_msg = await call.message.answer(
-            text=loading_text,
-            parse_mode="Markdown"
-        )
-        await state.update_data(main_msg_id=target_msg.message_id)
-    else:
-        try:
-            await call.message.edit_text(
-                text=loading_text,
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
-        target_msg = call.message
-        
     await call.answer()
-    await state.update_data(main_msg_id=target_msg.message_id)
     
     global _ROOMS_CACHE
     now = time.time()
@@ -65,7 +42,27 @@ async def start_rental_flow(call: CallbackQuery, state: FSMContext, sheets=None)
         rooms_data = _ROOMS_CACHE["data"]
         logger.info("loaded_rooms_from_cache")
         
+    # If not cached, we need to show a loader and fetch it
     if not rooms_data:
+        # Show loading status immediately without deleting the message if possible
+        loading_text = "⏳ *Завантажуємо інформацію про кабінети... Будь ласка, зачекайте.*"
+        if call.message.photo or call.message.video or call.message.document:
+            try:
+                await call.message.edit_caption(
+                    caption=loading_text,
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                await call.message.edit_text(
+                    text=loading_text,
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+
         # Default fallback room data
         rooms_data = [
             {
@@ -134,6 +131,22 @@ async def start_rental_flow(call: CallbackQuery, state: FSMContext, sheets=None)
         )
     builder.row(InlineKeyboardButton(text="⬅️ Головне меню", callback_data="menu:home"))
     
+    markup = builder.as_markup()
+
+    # If the message already has a photo/caption, edit it seamlessly
+    if call.message.photo or call.message.document:
+        try:
+            await call.message.edit_caption(
+                caption=offices_text,
+                parse_mode="Markdown",
+                reply_markup=markup
+            )
+            await state.update_data(main_msg_id=call.message.message_id)
+            await state.set_state(RoomRentalFSM.SelectRoom)
+            return
+        except Exception:
+            pass
+
     global _OFFICE_PHOTO_FILE_ID
     # Try sending photo or video/animation first if they exist
     import os
@@ -142,10 +155,6 @@ async def start_rental_flow(call: CallbackQuery, state: FSMContext, sheets=None)
     video_path = "app/bot/assets/rental_video.gif"
     
     async def clean_old_msg():
-        try:
-            await call.bot.delete_message(chat_id=call.message.chat.id, message_id=target_msg.message_id)
-        except Exception:
-            pass
         try:
             await call.message.delete()
         except Exception:
@@ -157,7 +166,7 @@ async def start_rental_flow(call: CallbackQuery, state: FSMContext, sheets=None)
                 photo=_OFFICE_PHOTO_FILE_ID,
                 caption=offices_text,
                 parse_mode="Markdown",
-                reply_markup=builder.as_markup()
+                reply_markup=markup
             )
             await state.update_data(main_msg_id=sent_msg.message_id)
             await clean_old_msg()
@@ -173,7 +182,7 @@ async def start_rental_flow(call: CallbackQuery, state: FSMContext, sheets=None)
                 photo=photo_file,
                 caption=offices_text,
                 parse_mode="Markdown",
-                reply_markup=builder.as_markup()
+                reply_markup=markup
             )
             if sent_msg.photo:
                 _OFFICE_PHOTO_FILE_ID = sent_msg.photo[-1].file_id
@@ -191,31 +200,30 @@ async def start_rental_flow(call: CallbackQuery, state: FSMContext, sheets=None)
                 animation=video_file,
                 caption=offices_text,
                 parse_mode="Markdown",
-                reply_markup=builder.as_markup()
+                reply_markup=markup
             )
             await state.update_data(main_msg_id=sent_msg.message_id)
             await clean_old_msg()
             await state.set_state(RoomRentalFSM.SelectRoom)
             return
         except Exception as e:
-            logger.error("failed_to_send_rental_video", error=str(e))
+            logger.error("failed_to_send_rental_animation", error=str(e))
 
-    if call.message.photo or call.message.document or call.message.video:
+    # Fallback to text edit or answer
+    try:
+        await call.message.edit_text(
+            text=offices_text,
+            parse_mode="Markdown",
+            reply_markup=markup
+        )
+    except Exception:
         sent_msg = await call.message.answer(
             text=offices_text,
             parse_mode="Markdown",
-            reply_markup=builder.as_markup()
+            reply_markup=markup
         )
         await state.update_data(main_msg_id=sent_msg.message_id)
         await clean_old_msg()
-    else:
-        try:
-            await target_msg.edit_text(
-                text=offices_text,
-                parse_mode="Markdown",
-                reply_markup=builder.as_markup()
-            )
-        except Exception:
             pass
             
     await state.set_state(RoomRentalFSM.SelectRoom)
