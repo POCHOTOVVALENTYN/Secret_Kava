@@ -224,7 +224,6 @@ async def start_rental_flow(call: CallbackQuery, state: FSMContext, sheets=None)
         )
         await state.update_data(main_msg_id=sent_msg.message_id)
         await clean_old_msg()
-            pass
             
     await state.set_state(RoomRentalFSM.SelectRoom)
 
