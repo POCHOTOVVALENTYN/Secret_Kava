@@ -289,20 +289,18 @@ async def process_room_selection(
     """Processes room choice and requests booking date."""
     room_id = int(call.data.split(":")[1])
     
-    # Show loading status immediately by deleting photo and sending a text loader
+    # Show loading status immediately by editing the existing message caption or text
     loading_text = "⏳ *Завантажуємо актуальний розклад... Будь ласка, зачекайте.*"
-    target_msg = None
+    target_msg = call.message
     
     if call.message.photo or call.message.video or call.message.document:
         try:
-            await call.message.delete()
+            await call.message.edit_caption(
+                caption=loading_text,
+                parse_mode="Markdown"
+            )
         except Exception:
             pass
-        target_msg = await call.message.answer(
-            text=loading_text,
-            parse_mode="Markdown"
-        )
-        await state.update_data(main_msg_id=target_msg.message_id)
     else:
         try:
             await call.message.edit_text(
@@ -311,7 +309,6 @@ async def process_room_selection(
             )
         except Exception:
             pass
-        target_msg = call.message
             
     await call.answer()
     
@@ -342,18 +339,43 @@ async def process_room_selection(
     markup = _generate_room_calendar(active_dates)
     
     # Replace the loading message with the calendar message
-    try:
-        await target_msg.edit_text(
-            text="📅 *Оберіть бажану дату оренди:*\n\n_(активні дати клікабельні, неактивні позначені крапкою)_",
-            parse_mode="Markdown",
-            reply_markup=markup
-        )
-    except Exception:
-        await call.message.answer(
-            text="📅 *Оберіть бажану дату оренди:*\n\n_(активні дати клікабельні, неактивні позначені крапкою)_",
-            parse_mode="Markdown",
-            reply_markup=markup
-        )
+    msg_text = "📅 *Оберіть бажану дату оренди:*\n\n_(активні дати клікабельні, неактивні позначені крапкою)_"
+    if target_msg.photo or target_msg.video or target_msg.document:
+        try:
+            await target_msg.edit_caption(
+                caption=msg_text,
+                parse_mode="Markdown",
+                reply_markup=markup
+            )
+        except Exception:
+            try:
+                sent_msg = await call.message.answer(
+                    text=msg_text,
+                    parse_mode="Markdown",
+                    reply_markup=markup
+                )
+                await state.update_data(main_msg_id=sent_msg.message_id)
+                await call.message.delete()
+            except Exception:
+                pass
+    else:
+        try:
+            await target_msg.edit_text(
+                text=msg_text,
+                parse_mode="Markdown",
+                reply_markup=markup
+            )
+        except Exception:
+            try:
+                sent_msg = await call.message.answer(
+                    text=msg_text,
+                    parse_mode="Markdown",
+                    reply_markup=markup
+                )
+                await state.update_data(main_msg_id=sent_msg.message_id)
+                await call.message.delete()
+            except Exception:
+                pass
     await state.set_state(RoomRentalFSM.SelectDate)
 
 
