@@ -22,25 +22,6 @@ async def process_womens_circle_menu(
     state: FSMContext
 ) -> None:
     """Displays Women's Circle description and signup action button."""
-    # Show loading status immediately
-    loading_text = "⏳ *Завантажуємо інформацію про Жіноче коло... Будь ласка, зачекайте.*"
-    if call.message.photo or call.message.video or call.message.document:
-        try:
-            await call.message.edit_caption(
-                caption=loading_text,
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
-    else:
-        try:
-            await call.message.edit_text(
-                text=loading_text,
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
-            
     await call.answer()
     await state.clear()
     await state.update_data(main_msg_id=call.message.message_id)
@@ -57,6 +38,18 @@ async def process_womens_circle_menu(
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📅 Записатися на зустріч 🍷", callback_data="womens_circle:register"))
     builder.row(InlineKeyboardButton(text="⬅️ Головне меню", callback_data="menu:home"))
+
+    # 1. If the message already has a photo/caption, edit it seamlessly
+    if call.message.photo or call.message.document:
+        try:
+            await call.message.edit_caption(
+                caption=desc_text,
+                parse_mode="Markdown",
+                reply_markup=builder.as_markup()
+            )
+            return
+        except Exception:
+            pass
 
     asset_path = "app/bot/assets/womens_circle_poster.png"
     
@@ -79,24 +72,21 @@ async def process_womens_circle_menu(
             logger.error("failed_to_send_womens_circle_poster", error=str(e))
 
     # Fallback text message if photo fails to send
-    if call.message.photo or call.message.document:
-        try:
-            await call.message.delete()
-        except Exception:
-            pass
+    try:
+        await call.message.edit_text(
+            text=desc_text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
+    except Exception:
         sent_msg = await call.message.answer(
             text=desc_text,
             parse_mode="Markdown",
             reply_markup=builder.as_markup()
         )
         await state.update_data(main_msg_id=sent_msg.message_id)
-    else:
         try:
-            await call.message.edit_text(
-                text=desc_text,
-                parse_mode="Markdown",
-                reply_markup=builder.as_markup()
-            )
+            await call.message.delete()
         except Exception:
             pass
 
@@ -134,17 +124,16 @@ async def start_registration(
         "Лише п'ятниці з вільними місцями клікабельні."
     )
     
+    # 2. Edit caption of the existing photo message instead of deleting it
     if call.message.photo or call.message.document:
         try:
-            await call.message.delete()
-        except Exception:
-            pass
-        sent_msg = await call.message.answer(
-            text=msg_text,
-            parse_mode="Markdown",
-            reply_markup=builder.as_markup()
-        )
-        await state.update_data(main_msg_id=sent_msg.message_id)
+            await call.message.edit_caption(
+                caption=msg_text,
+                parse_mode="Markdown",
+                reply_markup=builder.as_markup()
+            )
+        except Exception as e:
+            logger.error("failed_to_edit_caption_in_registration", error=str(e))
     else:
         try:
             await call.message.edit_text(
