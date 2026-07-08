@@ -1438,14 +1438,15 @@ class BookingService:
             ]
             
         try:
-            # Read static events register
-            events_rows = await self.sheets.read_sheet("Заявки організаторів на заходи (Афіши)")
+            # Read static events register and booked tickets concurrently
+            events_rows, bookings_rows = await asyncio.gather(
+                self.sheets.read_sheet("Заявки організаторів на заходи (Афіши)"),
+                self.sheets.read_sheet("Бронювання на заходи (Афіши)")
+            )
+            
             if not events_rows or len(events_rows) <= 1:
                 return []
                 
-            # Read booked tickets to count seats left
-            bookings_rows = await self.sheets.read_sheet("Бронювання на заходи (Афіши)")
-            
             # Count bookings per event title
             booking_counts = {}
             if bookings_rows and len(bookings_rows) > 1:
@@ -1455,6 +1456,20 @@ class BookingService:
                         status = row[6]       # Статус is index 6
                         if status in ["paid", "монобанк", "готівка", "success"]:
                             booking_counts[event_title] = booking_counts.get(event_title, 0) + 1
+
+            # Fetch all event seat locks from Redis in a single query to avoid N+1 queries
+            all_lock_keys = await self.redis.keys("lock:event_seat:*")
+            redis_locked_counts = {}
+            for key in all_lock_keys:
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8")
+                parts = key.split(":")
+                if len(parts) >= 4:
+                    try:
+                        ev_id = int(parts[2])
+                        redis_locked_counts[ev_id] = redis_locked_counts.get(ev_id, 0) + 1
+                    except ValueError:
+                        continue
 
             events_list = []
             # Parse events (skipping header row)
@@ -1507,8 +1522,7 @@ class BookingService:
                 month = ""
                 status = str(row[7]).strip() if len(row) > 7 else "Актуальний"
                 
-                redis_keys = await self.redis.keys(f"lock:event_seat:{event_id}:*")
-                redis_locked_count = len(redis_keys)
+                redis_locked_count = redis_locked_counts.get(event_id, 0)
                 booked_count = booking_counts.get(title, 0) + redis_locked_count
                 seats_left = max(0, limit - booked_count)
                 
