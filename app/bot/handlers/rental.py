@@ -406,11 +406,19 @@ async def process_rental_date(
     builder.adjust(3)
     builder.row(InlineKeyboardButton(text="⬅️ Назад до дат", callback_data="back:rent_date"))
     
-    await call.message.edit_text(
-        text=f"⏰ *Оберіть час початку оренди кабінету на {selected_date_str}:*",
-        parse_mode="Markdown",
-        reply_markup=builder.as_markup()
-    )
+    msg_text = f"⏰ *Оберіть час початку оренди кабінету на {selected_date_str}:*"
+    if call.message.photo or call.message.video or call.message.document:
+        await call.message.edit_caption(
+            caption=msg_text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await call.message.edit_text(
+            text=msg_text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
     await state.set_state(RoomRentalFSM.SelectSlot)
 
 
@@ -459,11 +467,19 @@ async def process_rental_slot(
     builder.adjust(2)
     builder.row(InlineKeyboardButton(text="⬅️ Назад до годин", callback_data=f"back:rent_slot:{selected_date}"))
     
-    await call.message.edit_text(
-        text=f"⏰ *Оберіть тривалість оренди починаючи з {selected_time}:*",
-        parse_mode="Markdown",
-        reply_markup=builder.as_markup()
-    )
+    msg_text = f"⏰ *Оберіть тривалість оренди починаючи з {selected_time}:*"
+    if call.message.photo or call.message.video or call.message.document:
+        await call.message.edit_caption(
+            caption=msg_text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await call.message.edit_text(
+            text=msg_text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
     await state.set_state(RoomRentalFSM.SelectDuration)
 
 
@@ -743,11 +759,19 @@ async def back_to_rent_date(
     
     markup = _generate_room_calendar(active_dates)
     
-    await call.message.edit_text(
-        text="📅 *Оберіть бажану дату оренди:*\n\n_(активні дати клікабельні, неактивні позначені крапкою)_",
-        parse_mode="Markdown",
-        reply_markup=markup
-    )
+    msg_text = "📅 *Оберіть бажану дату оренди:*\n\n_(активні дати клікабельні, неактивні позначені крапкою)_"
+    if call.message.photo or call.message.video or call.message.document:
+        await call.message.edit_caption(
+            caption=msg_text,
+            parse_mode="Markdown",
+            reply_markup=markup
+        )
+    else:
+        await call.message.edit_text(
+            text=msg_text,
+            parse_mode="Markdown",
+            reply_markup=markup
+        )
     await state.set_state(RoomRentalFSM.SelectDate)
 
 
@@ -777,11 +801,19 @@ async def back_to_rent_slot(
     builder.adjust(3)
     builder.row(InlineKeyboardButton(text="⬅️ Назад до дат", callback_data="back:rent_date"))
     
-    await call.message.edit_text(
-        text=f"⏰ *Оберіть час початку оренди кабінету на {selected_date_str}:*",
-        parse_mode="Markdown",
-        reply_markup=builder.as_markup()
-    )
+    msg_text = f"⏰ *Оберіть час початку оренди кабінету на {selected_date_str}:*"
+    if call.message.photo or call.message.video or call.message.document:
+        await call.message.edit_caption(
+            caption=msg_text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await call.message.edit_text(
+            text=msg_text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
     await state.set_state(RoomRentalFSM.SelectSlot)
 
 
@@ -797,8 +829,16 @@ async def cancel_rental_checkout(call: CallbackQuery, state: FSMContext) -> None
         except Exception:
             pass
     await state.clear()
-    await call.message.edit_text(
-            text="❌ Бронювання оренди скасовано. Ви можете почати спочатку з головного меню.",
-            reply_markup=get_main_menu_keyboard(user_id=call.from_user.id)
+    msg_text = "❌ Бронювання оренди скасовано. Ви можете почати спочатку з головного меню."
+    markup = get_main_menu_keyboard(user_id=call.from_user.id)
+    if call.message.photo or call.message.video or call.message.document:
+        await call.message.edit_caption(
+            caption=msg_text,
+            reply_markup=markup
+        )
+    else:
+        await call.message.edit_text(
+            text=msg_text,
+            reply_markup=markup
         )
 
