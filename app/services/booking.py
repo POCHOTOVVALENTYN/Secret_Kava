@@ -1397,6 +1397,7 @@ class BookingService:
     async def get_cached_events(self) -> list[dict]:
         """Reads events list from Google Sheets and counts bookings, using Redis for 5-minute caching."""
         import json
+        import asyncio
         cache_key = "cache:events_list"
         
         # 1. Try to read from Redis cache
