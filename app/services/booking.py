@@ -1066,9 +1066,10 @@ class BookingService:
                                 )
                         except Exception as e:
                             logger.error("google_sheets_event_sync_failed_during_settlement", error=str(e))
-                    # Release Redis event seat lock
+                    # Release Redis event seat lock & clear cache for instant seat updates
                     lock_key = f"lock:event_seat:{booking.event_id}:{booking.user.telegram_id}"
                     await self.redis.delete(lock_key)
+                    await self.redis.delete("cache:events_list")
                     
                     logger.info("event_payment_settled_successfully", booking_id=booking.id)
                     msg_text = (
@@ -1391,9 +1392,10 @@ class BookingService:
         await self.db.commit()
         logger.info("event_booking_confirmed_without_prepayment", booking_id=new_booking.id)
 
-        # Release Redis event seat lock
+        # Release Redis event seat lock & clear cache for instant seat updates
         lock_key = f"lock:event_seat:{event_id}:{telegram_id}"
         await self.redis.delete(lock_key)
+        await self.redis.delete("cache:events_list")
 
         # 3. Send confirmation message in Telegram
         try:
@@ -1495,9 +1497,10 @@ class BookingService:
         await self.db.commit()
         logger.info("free_event_booking_confirmed_successfully", booking_id=new_booking.id)
 
-        # Release Redis event seat lock
+        # Release Redis event seat lock & clear cache for instant seat updates
         lock_key = f"lock:event_seat:{event_id}:{telegram_id}"
         await self.redis.delete(lock_key)
+        await self.redis.delete("cache:events_list")
 
         # 3. Send confirmation message in Telegram
         try:
