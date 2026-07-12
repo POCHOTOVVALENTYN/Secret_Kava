@@ -1580,7 +1580,7 @@ class BookingService:
                     if len(row) > 6:
                         event_title = row[3]  # Захід is index 3
                         status = row[6]       # Статус is index 6
-                        if status in ["paid", "монобанк", "готівка", "success"]:
+                        if status in ["paid", "монобанк", "готівка", "success", "без передплати", "безкоштовно", "confirmed"]:
                             booking_counts[event_title] = booking_counts.get(event_title, 0) + 1
 
             # Fetch all event seat locks from Redis in a single query to avoid N+1 queries
