@@ -1540,8 +1540,8 @@ class BookingService:
                     "seats_left": seats_left
                 })
                 
-            # Save to cache for 5 minutes
-            await self.redis.setex(cache_key, 300, json.dumps(events_list))
+            # Save to cache for 24 hours (background job refreshes it every 5 minutes)
+            await self.redis.setex(cache_key, 86400, json.dumps(events_list))
             return events_list
             
         except Exception as e:

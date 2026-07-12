@@ -60,6 +60,13 @@ class SchedulerService:
             id="sync_room_rental_slots_job",
             replace_existing=True
         )
+        self.scheduler.add_job(
+            sync_events_job,
+            'interval',
+            minutes=5,
+            id="sync_events_job",
+            replace_existing=True
+        )
         # Schedule Thursday reminders for Women's Circle at 19:00 Europe/Kyiv time
         self.scheduler.add_job(
             send_thursday_reminders_job,
@@ -407,3 +414,47 @@ async def check_pending_payments_job() -> None:
                 
         await redis_client.close()
     logger.info("background_pending_payments_check_completed")
+
+
+async def sync_events_job() -> None:
+    """Synchronizes events list from Google Sheets to Redis periodically."""
+    from app.database.session import async_session_factory
+    from app.services.booking import BookingService
+    from app.integrations.google_sheets import GoogleSheetsClient
+    from app.core.config import settings
+    import redis.asyncio as redis
+    import os
+    
+    logger.info("background_events_sync_started")
+    async with async_session_factory() as session:
+        has_sa = settings.GOOGLE_SERVICE_ACCOUNT_FILE and os.path.exists(settings.GOOGLE_SERVICE_ACCOUNT_FILE)
+        has_oauth = settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET and settings.GOOGLE_REFRESH_TOKEN
+        
+        sheets_client = None
+        if settings.GOOGLE_SHEET_ID and (has_sa or has_oauth):
+            try:
+                sheets_client = GoogleSheetsClient(
+                    spreadsheet_id=settings.GOOGLE_SHEET_ID,
+                    client_id=settings.GOOGLE_CLIENT_ID,
+                    client_secret=settings.GOOGLE_CLIENT_SECRET.get_secret_value() if settings.GOOGLE_CLIENT_SECRET else None,
+                    refresh_token=settings.GOOGLE_REFRESH_TOKEN.get_secret_value() if settings.GOOGLE_REFRESH_TOKEN else None,
+                    service_account_file=settings.GOOGLE_SERVICE_ACCOUNT_FILE
+                )
+            except Exception as e:
+                logger.error("sheets_client_init_failed_in_job", error=str(e))
+                
+        redis_client = redis.from_url(settings.REDIS_URL)
+        
+        booking_service = BookingService(
+            redis_client=redis_client,
+            db_session=session,
+            sheets_client=sheets_client
+        )
+        
+        # Clear the old cache to force get_cached_events to pull fresh data from Google Sheets
+        await redis_client.delete("cache:events_list")
+        await booking_service.get_cached_events()
+        
+        await redis_client.close()
+    logger.info("background_events_sync_completed")
+
