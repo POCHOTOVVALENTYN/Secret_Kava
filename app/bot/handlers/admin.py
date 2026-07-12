@@ -193,10 +193,21 @@ async def admin_entry(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer("🚫 Доступ заборонено", show_alert=True)
         return
     await state.set_state(AdminMenuFSM.MainMenu)
-    await call.message.edit_text(
-        "🔐 *Адмін Панель*\n\nОберіть розділ:",
-        parse_mode="Markdown", reply_markup=_kb_main()
-    )
+    admin_text = "🔐 *Адмін Панель*\n\nОберіть розділ:"
+    if call.message.photo or call.message.document or call.message.video:
+        await call.message.answer(
+            text=admin_text,
+            parse_mode="Markdown", reply_markup=_kb_main()
+        )
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+    else:
+        await call.message.edit_text(
+            admin_text,
+            parse_mode="Markdown", reply_markup=_kb_main()
+        )
     await call.answer()
 
 @router.callback_query(F.data == "adm:main")
@@ -205,10 +216,21 @@ async def admin_main(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer("🚫 Доступ заборонено", show_alert=True)
         return
     await state.set_state(AdminMenuFSM.MainMenu)
-    await call.message.edit_text(
-        "🔐 *Адмін Панель*\n\nОберіть розділ:",
-        parse_mode="Markdown", reply_markup=_kb_main()
-    )
+    admin_text = "🔐 *Адмін Панель*\n\nОберіть розділ:"
+    if call.message.photo or call.message.document or call.message.video:
+        await call.message.answer(
+            text=admin_text,
+            parse_mode="Markdown", reply_markup=_kb_main()
+        )
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+    else:
+        await call.message.edit_text(
+            admin_text,
+            parse_mode="Markdown", reply_markup=_kb_main()
+        )
     await call.answer()
 
 # ─── Prices Menu ──────────────────────────────────────────────────────────────
