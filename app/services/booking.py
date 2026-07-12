@@ -1520,6 +1520,7 @@ class BookingService:
                 except ValueError:
                     price = 0.0
                     
+                month = ""
                 raw_status = str(row[7]).strip().lower() if len(row) > 7 and row[7] else "актуальний"
                 if raw_status in ("анонс", "announcement"):
                     status = "Анонс"
