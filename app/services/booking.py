@@ -974,6 +974,8 @@ class BookingService:
                     logger.info("rental_payment_settled_successfully", booking_id=booking.id)
                     is_host_event = (booking.room_id == 2 and payment.payment_details and payment.payment_details.get("type") == "host_event")
                     if is_host_event:
+                        # Clear cache so the new event appears in the bot instantly
+                        await self.redis.delete("cache:events_list")
                         p_det = payment.payment_details
                         msg_text = (
                             f"✅ *Передплату за реєстрацію заходу успішно отримано!*\n\n"
