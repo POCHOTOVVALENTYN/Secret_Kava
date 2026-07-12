@@ -937,13 +937,24 @@ class BookingService:
                                     except Exception:
                                         formatted_date_only = raw_date
 
+                                    time_str = p_det.get("time", "")
+                                    hours = int(p_det.get("hours", 1))
+                                    try:
+                                        start_t = datetime.strptime(time_str, "%H:%M")
+                                        end_t = start_t + timedelta(hours=hours)
+                                        time_range = f"{time_str} - {end_t.strftime('%H:%M')} ({hours} &alpha;_год.)"
+                                        # Wait, let's use plain text instead of HTML entity
+                                        time_range = f"{time_str} - {end_t.strftime('%H:%M')} ({hours} год.)"
+                                    except Exception:
+                                        time_range = time_str
+
                                     await self.sheets.append_row(
                                         "Заявки організаторів на заходи (Афіши)",
                                         [
                                             next_id,                          # ID
                                             p_det.get("title", ""),           # Назва
                                             p_det.get("host", ""),            # Ведучий
-                                            p_det.get("time", ""),            # Час (e.g. 17:00)
+                                            time_range,                       # Час (e.g. 17:00 - 20:00 (3 год.))
                                             formatted_date_only,              # Дата (e.g. 23.06.2026)
                                             int(p_det.get("limit", 15)),      # Ліміт місць
                                             float(p_det.get("price", 0.0)),   # Ціна
@@ -1599,17 +1610,24 @@ class BookingService:
                 date_only = row[4] if len(row) > 4 else ""
                 date_str = f"{date_only} {time_str}".strip()
                 
+                # Extract first time (start time) from ranges like "17:00 - 20:00 (3 год.)" or "10:00-12:00"
+                import re
+                start_time_str = time_str.split("-")[0].strip() if "-" in time_str else time_str.strip()
+                match = re.search(r"\b\d{2}:\d{2}\b", start_time_str)
+                clean_start_time = match.group(0) if match else start_time_str
+                clean_date_str = f"{date_only} {clean_start_time}".strip()
+                
                 # Filter out expired/past events
                 from zoneinfo import ZoneInfo
                 kyiv_tz = ZoneInfo("Europe/Kyiv")
                 now_local = datetime.now(kyiv_tz)
                 
                 is_past = False
-                if date_str:
+                if clean_date_str:
                     event_dt = None
                     for fmt in ("%d.%m.%Y %H:%M", "%Y-%m-%d %H:%M", "%d.%m.%Y", "%Y-%m-%d"):
                         try:
-                            event_dt = datetime.strptime(date_str, fmt).replace(tzinfo=kyiv_tz)
+                            event_dt = datetime.strptime(clean_date_str, fmt).replace(tzinfo=kyiv_tz)
                             if "%H:%M" not in fmt:
                                 event_dt = event_dt.replace(hour=23, minute=59)
                             break
