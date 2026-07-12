@@ -929,24 +929,26 @@ class BookingService:
                                     
                                     p_det = payment.payment_details
                                     
-                                    # Format: 25.06.2026 18:00
+                                    # Convert date from YYYY-MM-DD to DD.MM.YYYY
+                                    raw_date = p_det.get("date", "")
                                     try:
-                                        dt_obj = datetime.strptime(f"{p_det.get('date')} {p_det.get('time')}", "%Y-%m-%d %H:%M")
-                                        formatted_date = dt_obj.strftime("%d.%m.%Y %H:%M")
+                                        date_obj = datetime.strptime(raw_date, "%Y-%m-%d")
+                                        formatted_date_only = date_obj.strftime("%d.%m.%Y")
                                     except Exception:
-                                        formatted_date = f"{p_det.get('date')} {p_det.get('time')}"
+                                        formatted_date_only = raw_date
 
                                     await self.sheets.append_row(
                                         "Заявки організаторів на заходи (Афіши)",
                                         [
-                                            next_id,
-                                            p_det.get("title", ""),
-                                            p_det.get("host", ""),
-                                            formatted_date,
-                                            int(p_det.get("limit", 15)),
-                                            float(p_det.get("price", 0.0)),
-                                            "Актуальний",
-                                            payment_method
+                                            next_id,                          # ID
+                                            p_det.get("title", ""),           # Назва
+                                            p_det.get("host", ""),            # Ведучий
+                                            p_det.get("time", ""),            # Час (e.g. 17:00)
+                                            formatted_date_only,              # Дата (e.g. 23.06.2026)
+                                            int(p_det.get("limit", 15)),      # Ліміт місць
+                                            float(p_det.get("price", 0.0)),   # Ціна
+                                            "Актуальний",                     # Статус
+                                            payment_method                    # ОПЛАТА
                                         ]
                                     )
                                     logger.info("sheets_host_event_synced", event_id=next_id)
