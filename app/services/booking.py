@@ -1520,8 +1520,13 @@ class BookingService:
                 except ValueError:
                     price = 0.0
                     
-                month = ""
-                status = str(row[7]).strip() if len(row) > 7 else "Актуальний"
+                raw_status = str(row[7]).strip().lower() if len(row) > 7 and row[7] else "актуальний"
+                if raw_status in ("анонс", "announcement"):
+                    status = "Анонс"
+                elif raw_status in ("скасовано", "cancelled", "cancel"):
+                    status = "Скасовано"
+                else:
+                    status = "Актуальний"
                 
                 redis_locked_count = redis_locked_counts.get(event_id, 0)
                 booked_count = booking_counts.get(title, 0) + redis_locked_count
