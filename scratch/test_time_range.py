@@ -21,7 +21,7 @@ async def main():
     )
 
     print("Updating spreadsheet Row 2 Time to '10:00 - 15:00 (5 год.)'...")
-    await sheets_client.write_cell("Заявки організаторів на заходи (Афіши)", row=3, col=4, value="10:00 - 15:00 (5 год.)")
+    await sheets_client.update_cell("Заявки організаторів на заходи (Афіши)", row=3, col_letter="D", value="10:00 - 15:00 (5 год.)")
     
     redis_client = redis.from_url(settings.REDIS_URL)
     async with async_session_factory() as session:
