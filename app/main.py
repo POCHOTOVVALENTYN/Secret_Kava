@@ -54,15 +54,16 @@ async def app_lifespan(app: FastAPI):
     
     # Configure Telegram webhook mapping
     if settings.TELEGRAM_WEBHOOK_URL:
-        webhook_info = await bot.get_webhook_info()
         target_webhook = f"{settings.TELEGRAM_WEBHOOK_URL}/webhooks/telegram"
         
-        if webhook_info.url != target_webhook:
-            await bot.set_webhook(
-                url=target_webhook,
-                secret_token=settings.TELEGRAM_WEBHOOK_SECRET.get_secret_value()
-            )
-            logger.info("telegram_webhook_published", url=target_webhook)
+        # Always force re-register webhook on startup to recover from
+        # OOM crashes, Read timeout errors, or stale secret tokens
+        await bot.delete_webhook()
+        await bot.set_webhook(
+            url=target_webhook,
+            secret_token=settings.TELEGRAM_WEBHOOK_SECRET.get_secret_value()
+        )
+        logger.info("telegram_webhook_published", url=target_webhook)
     else:
         logger.warning("webhook_url_not_configured_polling_mode_suggested")
         
