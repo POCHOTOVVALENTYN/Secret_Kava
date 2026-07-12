@@ -1298,6 +1298,113 @@ class BookingService:
         
         return invoice_url, order_id
 
+    async def confirm_event_booking_without_prepayment(
+        self,
+        user_id: int,
+        event_id: int,
+        event_name: str,
+        date_str: str,
+        price: float,
+        client_name: str,
+        client_phone: str,
+        telegram_id: int
+    ) -> None:
+        """Registers an event booking directly without requiring prepayment, syncing with GCal and Sheets."""
+        from app.database.models.booking import EventBooking
+        
+        try:
+            start_dt = datetime.strptime(date_str, "%d.%m.%Y %H:%M")
+        except ValueError:
+            try:
+                start_dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
+            except ValueError:
+                try:
+                    start_dt = datetime.strptime(date_str, "%Y-%m-%d")
+                except ValueError:
+                    start_dt = datetime.utcnow()
+
+        new_booking = EventBooking(
+            user_id=user_id,
+            event_id=event_id,
+            event_name=event_name,
+            client_name=client_name,
+            client_phone=client_phone,
+            start_time=start_dt,
+            status="confirmed",  # Mark as confirmed directly
+            price=price
+        )
+        self.db.add(new_booking)
+        await self.db.flush()
+
+        # 1. Sync to Google Calendar safely
+        from app.core.config import settings
+        if self.gcal and settings.GOOGLE_CALENDAR_ID:
+            try:
+                gcal_id = await self.gcal.create_booking_event(
+                    calendar_id=settings.GOOGLE_CALENDAR_ID,
+                    summary=f"Захід: {event_name} - {client_name}",
+                    start_time=start_dt,
+                    duration_minutes=90
+                )
+                new_booking.google_event_id = gcal_id
+            except Exception as e:
+                logger.error("google_calendar_event_sync_failed", error=str(e))
+
+        # 2. Sync to Google Sheets safely
+        if self.sheets:
+            try:
+                from zoneinfo import ZoneInfo
+                kyiv_tz = ZoneInfo("Europe/Kyiv")
+                local_start = start_dt.astimezone(kyiv_tz) if start_dt.tzinfo else start_dt
+                event_date_dmy = local_start.strftime("%d.%m.%Y")
+                event_time = local_start.strftime("%H:%M")
+                
+                payment_status = "без передплати" if price > 0.0 else "безкоштовно"
+                
+                await self.sheets.append_row(
+                    "Бронювання на заходи (Афіши)",
+                    [
+                        new_booking.id,
+                        client_name,
+                        client_phone,
+                        event_name,
+                        event_date_dmy,
+                        event_time,
+                        payment_status,
+                        float(price)
+                    ]
+                )
+            except Exception as e:
+                logger.error("google_sheets_event_sync_failed", error=str(e))
+
+        await self.db.commit()
+        logger.info("event_booking_confirmed_without_prepayment", booking_id=new_booking.id)
+
+        # Release Redis event seat lock
+        lock_key = f"lock:event_seat:{event_id}:{telegram_id}"
+        await self.redis.delete(lock_key)
+
+        # 3. Send confirmation message in Telegram
+        try:
+            formatted_date_str = start_dt.strftime("%d.%m.%Y о %H:%M")
+        except Exception:
+            formatted_date_str = date_str
+            
+        if price > 0.0:
+            price_details = f"💵 Вартість: *{price:.2f} UAH* (сплачується організатору)\n\n"
+        else:
+            price_details = f"💵 Вартість: *Безкоштовно*\n\n"
+            
+        msg_text = (
+            f"✅ *Ваше бронювання підтверджено!*\n\n"
+            f"🎟️ Захід: *{event_name}*\n"
+            f"👤 Ім'я: *{client_name}*\n"
+            f"📅 Дата: *{formatted_date_str}*\n"
+            f"{price_details}"
+            f"✨ _Чекаємо на вас!_"
+        )
+        await self.send_or_edit_confirmation_message(telegram_id, msg_text, is_photo=False)
+
     async def confirm_free_event_booking(
         self,
         user_id: int,
